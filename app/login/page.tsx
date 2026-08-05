@@ -18,30 +18,38 @@ export default function LoginPage() {
     setErrorMsg("");
 
     try {
+      const cleanNim = nim.trim();
+
+      // 1. Ambil data user dari tabel users berdasarkan NIM
       const { data: user, error } = await supabase
         .from("users")
         .select("*")
-        .eq("nim", nim.trim())
+        .eq("nim", cleanNim)
         .maybeSingle();
 
       if (error || !user) {
-        throw new Error("NIM tidak terdaftar!");
+        throw new Error("NIM atau Password yang Anda masukkan salah!");
       }
 
-      if (!user.is_active) {
-        throw new Error("Akun Anda belum diaktifkan. Silakan aktivasi terlebih dahulu.");
-      }
-
+      // 2. Cek apakah password cocok
       if (user.password_hash !== password) {
-        throw new Error("Kata sandi salah!");
+        throw new Error("NIM atau Password yang Anda masukkan salah!");
       }
 
-      localStorage.setItem("user_nim", user.nim);
-      localStorage.setItem("user_nama", user.nama);
+      // 3. Cek apakah status akun sudah aktif
+      if (!user.is_active) {
+        throw new Error("Akun Anda belum diaktifkan. Silakan periksa email verifikasi Anda atau lakukan aktivasi.");
+      }
 
+      // 4. Simpan session di LocalStorage dengan penanganan nilai NULL
+      localStorage.setItem("user_nim", user.nim);
+      localStorage.setItem("user_nama", user.nama || user.nim);
+      if (user.role) localStorage.setItem("user_role", user.role);
+
+      // Redirect ke halaman penugasan
       router.push("/penugasan");
     } catch (err: any) {
-      setErrorMsg(err.message);
+      setErrorMsg(err.message || "Terjadi kesalahan saat login.");
     } finally {
       setLoading(false);
     }
@@ -60,7 +68,7 @@ export default function LoginPage() {
         <p className="auth-subtitle">Login dengan menggunakan NIM dan Password yang telah diaktivasi</p>
 
         {errorMsg && (
-          <div style={{ background: "rgba(255, 51, 51, 0.1)", border: "1px solid #FF3333", color: "#FF3333", padding: "10px", borderRadius: "10px", fontSize: "12px", marginBottom: "15px" }}>
+          <div style={{ background: "rgba(255, 51, 51, 0.1)", border: "1px solid #FF3333", color: "#FF3333", padding: "10px", borderRadius: "10px", fontSize: "12px", marginBottom: "15px", textAlign: "center" }}>
             ⚠️ {errorMsg}
           </div>
         )}

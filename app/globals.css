@@ -894,8 +894,9 @@ section, .task-page-content {
 .main-footer { padding: 30px 0; border-top: 1.5px solid rgba(27, 34, 167, 0.2); background: #0A0A0C; width: 100%; position: relative; z-index: 100; margin-top: auto; }
 .footer-flex { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
 .footer-left h4 { font-size: 11px; font-weight: 600; letter-spacing: 1px; color: #FAFAFA; }
-.footer-left p { font-size: 10px; color: rgba(250,250,250,0.2); margin-top: 2px; }
-.footer-center p { font-size: 11px; color: rgba(250,250,250,0.4); }
+.footer-left p { font-size: 10px; color: #fafafa; margin-top: 2px; }
+.footer-right a {color: #fafafa;}
+.footer-center p { font-size: 11px; color: #fafafa; }
 
 .ig-link {
   color: rgba(250, 250, 250, 0.25);
@@ -985,7 +986,7 @@ section, .task-page-content {
   transition: transform 0s, width 0s, max-width 0s, padding 0s, margin 0s !important;
 }
 
-.hero-title, .hero-section, .nav-container, .container { text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+.nav-container, .container { text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
 
 /* ==========================================
    12. TOMBOL LOGOUT NAV
