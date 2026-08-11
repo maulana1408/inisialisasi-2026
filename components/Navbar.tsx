@@ -111,10 +111,24 @@ export default function Navbar({ onPenugasanClick }: NavbarProps) {
 
   return (
     <>
+      {/* 🟢 EFEK GRADASI FADE-OUT ATAS (MENUSUS KELUAR KE ATAS LEBIH PEKAT & SELARAS WARNA WEB) */}
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "110px",
+          background: "linear-gradient(to top, rgba(10, 10, 12, 0) 0%, rgba(10, 10, 12, 0.75) 45%, rgba(10, 10, 12, 0.98) 85%, #0A0A0C 100%)",
+          pointerEvents: "none",
+          zIndex: 999990,
+        }}
+      />
+
       <nav className="navbar">
         <div className="nav-container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
           
-          {/* AREA LOGO & JUDUL: Ditambahkan onClick handleRestrictedClick */}
+          {/* AREA LOGO & JUDUL */}
           <a 
             href="/#home" 
             className="logo-area" 

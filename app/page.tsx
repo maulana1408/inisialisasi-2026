@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import Navbar from "@/components/Navbar";
 import { 
@@ -16,12 +16,15 @@ import {
 export default function Home() {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // ✍️ State untuk Animasi Ketik (Typewriter)
+  // Ref untuk Judul Gradasi
+  const titleRef = useRef<HTMLHeadingElement>(null);
+
+  // State Animasi Ketik (Typewriter)
   const fullText = "PERJALANANMU";
   const [typedText, setTypedText] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // 🔒 Kunci Scroll saat Modal Terbuka
+  // Kunci Scroll saat Modal Terbuka
   useEffect(() => {
     if (isModalOpen) {
       document.body.style.overflow = "hidden";
@@ -33,7 +36,7 @@ export default function Home() {
     };
   }, [isModalOpen]);
 
-  // ⌨️ Effect untuk Animasi Ketikan Berulang (Maju - Mundur)
+  // Effect Animasi Ketikan Berulang
   useEffect(() => {
     const typingSpeed = isDeleting ? 80 : 150;
     
@@ -54,14 +57,29 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [typedText, isDeleting]);
 
+  // Handler Interaksi Kursor Mouse Melacak Posisi Horizontal (X)
+  const handleMouseMove = (e: React.MouseEvent<HTMLHeadingElement>) => {
+    if (!titleRef.current) return;
+
+    const rect = titleRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+
+    titleRef.current.style.setProperty("--x", `${x}%`);
+  };
+
+  const handleMouseLeave = () => {
+    if (!titleRef.current) return;
+    titleRef.current.style.removeProperty("--x");
+  };
+
   const closeAll = () => {
     setIsModalOpen(false);
   };
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" }}>
-      
-      {/* 💡 LAMPU SOROT GLOBAL (Tembus dari Hero hingga Footer) */}
+
+      {/* 🟢 LAMPU SOROT FIXED MELAYANG (Melayang Bebas di Atas Grid, Tertutup Sempurna di Hero) */}
       <div className="spotlight-overlay spotlight-1" />
       <div className="spotlight-overlay spotlight-2" />
 
@@ -70,13 +88,23 @@ export default function Home() {
         <Navbar onPenugasanClick={() => setIsModalOpen(true)} />
       </div>
 
-      <main style={{ flex: 1, position: "relative", zIndex: 1 }} className={isModalOpen ? "blur-behind" : ""}>
+      <main style={{ flex: 1, position: "relative", zIndex: 2 }} className={isModalOpen ? "blur-behind" : ""}>
         {/* HERO SECTION */}
         <header id="home" className="hero-section">
           <div className="container flex-center">
             <h3 className="hero-subtitle">ARE YOU READY TO</h3>
-            <h1 className="hero-title">INITIALIZE</h1>
-            <p className="hero-tagline">"GROWING TOGETHER FOR A BRIGHTER FUTURE"</p>
+            
+            {/* Judul INITIALIZE dengan Gradasi Vertikal Memanjang Kiri-Kanan */}
+            <h1 
+              ref={titleRef}
+              className="hero-title"
+              onMouseMove={handleMouseMove}
+              onMouseLeave={handleMouseLeave}
+            >
+              INITIALIZE
+            </h1>
+            
+            <p className="hero-tagline">&quot;GROWING TOGETHER FOR A BRIGHTER FUTURE&quot;</p>
             <div className="hero-buttons">
               <a href="#about" className="btn-outline">Lihat Informasi</a>
               <a href="#reward-punishment" className="btn-outline">Reward & Punishment</a>
@@ -91,7 +119,6 @@ export default function Home() {
               <div className="about-badge-pill">WHAT IS INISIALISASI</div>
               <h2 className="about-card-title">
                 Memulai Babak Baru<br />
-                {/* 🎯 ANIMASI KETIKAN */}
                 <span className="about-title-spacing typewriter-text">
                   {typedText}
                   <span className="typewriter-cursor">|</span>
@@ -109,7 +136,7 @@ export default function Home() {
               <div className="about-glow-effect"></div>
               <div className="about-outer-frame">
                 <div className="about-inner-photo-frame">
-                  <img src="assets/fotobarenghimti.png" alt="Dokumentasi Inisialisasi" className="about-img-fluid" />
+                  <img src="assets/fotobarenginis.jpg" alt="Dokumentasi Inisialisasi" className="about-img-fluid" />
                 </div>
               </div>
             </div>
@@ -339,7 +366,7 @@ export default function Home() {
       </main>
 
       {/* FOOTER */}
-      <footer className="main-footer" style={{ position: "relative", zIndex: 1 }}>
+      <footer className="main-footer" style={{ position: "relative", zIndex: 10 }}>
         <div className="container footer-flex">
           <div className="footer-left" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <div style={{ width: "42px", height: "42px", position: "relative", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>

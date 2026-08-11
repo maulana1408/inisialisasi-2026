@@ -4,7 +4,19 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import Navbar from "@/components/Navbar";
-import { Trash2, Download, Plus, Megaphone, FileSpreadsheet, ShieldAlert, Filter, Pencil, X, CheckCircle2, AlertCircle } from "lucide-react";
+import { 
+  Trash2, 
+  Eye, 
+  Plus, 
+  Megaphone, 
+  FileSpreadsheet, 
+  ShieldAlert, 
+  Filter, 
+  Pencil, 
+  X, 
+  CheckCircle2, 
+  AlertCircle 
+} from "lucide-react";
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -15,12 +27,27 @@ export default function AdminDashboard() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [announcements, setAnnouncements] = useState<any[]>([]);
 
+  // 🟢 State Filter Rekap (Kategori, Status, dan Judul Tugas)
+  const [filterCategory, setFilterCategory] = useState<"all" | "individu" | "kelompok" | "angkatan">("all");
   const [filterLateStatus, setFilterLateStatus] = useState<"all" | "ontime" | "late">("all");
+  const [filterTaskTitle, setFilterTaskTitle] = useState<string>("all");
 
   const [isEditAnnModalOpen, setIsEditAnnModalOpen] = useState(false);
   const [editAnnData, setEditAnnData] = useState<any>(null);
   const [isEditTaskModalOpen, setIsEditTaskModalOpen] = useState(false);
   const [editTaskData, setEditTaskData] = useState<any>(null);
+
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    description: "",
+    onConfirm: () => {},
+  });
 
   const [taskId, setTaskId] = useState("");
   const [taskCategory, setTaskCategory] = useState("individu");
@@ -31,7 +58,9 @@ export default function AdminDashboard() {
   const [annContent, setAnnContent] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // 🏝️ State Dynamic Island Sempurna
+  const [userNama, setUserNama] = useState<string>("");
+  const [isLoaded, setIsLoaded] = useState(false);
+
   const [toast, setToast] = useState<{ show: boolean; isExpanded: boolean; message: string; subMessage: string; isError: boolean }>({
     show: false,
     isExpanded: false,
@@ -56,18 +85,26 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     const nim = localStorage.getItem("user_nim");
+    const savedNama = localStorage.getItem("user_nama");
     if (!nim) {
       router.push("/login");
       return;
     }
 
+    if (savedNama) setUserNama(savedNama);
+
     async function verifyAdmin() {
-      const { data } = await supabase.from("users").select("role").eq("nim", nim).single();
+      const { data } = await supabase.from("users").select("role, nama").eq("nim", nim).single();
       if (!data || data.role !== "admin") {
         triggerToast("AKSES DITOLAK", "Halaman khusus Admin!", true);
         router.push("/panitia");
         return;
       }
+      if (data.nama) {
+        setUserNama(data.nama);
+        localStorage.setItem("user_nama", data.nama);
+      }
+      setIsLoaded(true);
     }
 
     verifyAdmin();
@@ -75,8 +112,8 @@ export default function AdminDashboard() {
   }, []);
 
   const loadAllData = async () => {
-    const { data: taskData } = await supabase.from("tasks").select("*").order("created_at", { ascending: true }); // Terbaru di bawah
-    const { data: annData } = await supabase.from("announcements").select("*").order("created_at", { ascending: true }); // Terbaru di bawah
+    const { data: taskData } = await supabase.from("tasks").select("*").order("created_at", { ascending: true });
+    const { data: annData } = await supabase.from("announcements").select("*").order("created_at", { ascending: true });
     const { data: subData } = await supabase.from("submissions").select("*, users(nama, nim)").order("submitted_at", { ascending: false });
 
     if (taskData) {
@@ -100,6 +137,7 @@ export default function AdminDashboard() {
       title: taskTitle,
       rules: rulesArray,
       deadline: new Date(taskDeadline).toISOString(),
+      is_active: true,
     });
 
     setLoading(false);
@@ -119,6 +157,7 @@ export default function AdminDashboard() {
     const { error } = await supabase.from("announcements").insert({
       title: annTitle,
       content: annContent,
+      is_active: true,
     });
 
     setLoading(false);
@@ -187,112 +226,309 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleDeleteTask = async (id: string) => {
-    if (!confirm(`Hapus tugas ${id}?`)) return;
-    const { error } = await supabase.from("tasks").delete().eq("id", id);
-    if (error) triggerToast("GAGAL HAPUS", error.message, true);
-    else {
-      triggerToast("DATA DIHAPUS", `Tugas ${id} berhasil dihapus!`, false);
-      loadAllData();
-    }
+  const handleToggleTaskStatus = (id: string, currentStatus: boolean) => {
+    const nextStatus = !currentStatus;
+    const actionText = nextStatus ? "mengaktifkan" : "menonaktifkan";
+
+    setConfirmModal({
+      isOpen: true,
+      title: "KONFIRMASI STATUS TUGAS",
+      description: `Apakah Anda yakin ingin ${actionText} tugas ${id}?`,
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        const { error } = await supabase
+          .from("tasks")
+          .update({ is_active: nextStatus })
+          .eq("id", id);
+
+        if (error) {
+          triggerToast("GAGAL MENGUBAH STATUS", error.message, true);
+        } else {
+          triggerToast("STATUS DIPERBARUI", `Tugas ${id} berhasil di-${nextStatus ? "aktifkan" : "nonaktifkan"}!`, false);
+          loadAllData();
+        }
+      },
+    });
   };
 
-  const handleDeleteAnnouncement = async (id: string) => {
-    if (!confirm("Hapus pengumuman ini?")) return;
-    const { error } = await supabase.from("announcements").delete().eq("id", id);
-    if (error) triggerToast("GAGAL HAPUS", error.message, true);
-    else {
-      triggerToast("DATA DIHAPUS", "Pengumuman berhasil dihapus!", false);
-      loadAllData();
-    }
+  const handleToggleAnnStatus = (id: string, title: string, currentStatus: boolean) => {
+    const nextStatus = !currentStatus;
+    const actionText = nextStatus ? "mengaktifkan" : "menonaktifkan";
+
+    setConfirmModal({
+      isOpen: true,
+      title: "KONFIRMASI PENGUMUMAN",
+      description: `Apakah Anda yakin ingin ${actionText} pengumuman "${title}"?`,
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        const { error } = await supabase
+          .from("announcements")
+          .update({ is_active: nextStatus })
+          .eq("id", id);
+
+        if (error) {
+          triggerToast("GAGAL MENGUBAH STATUS", error.message, true);
+        } else {
+          triggerToast("STATUS DIPERBARUI", `Pengumuman berhasil di-${nextStatus ? "aktifkan" : "nonaktifkan"}!`, false);
+          loadAllData();
+        }
+      },
+    });
+  };
+
+  const getCleanViewUrl = (rawUrl: string) => {
+    if (!rawUrl) return "#";
+    return rawUrl.split("?download=")[0];
   };
 
   const processedSubmissions = submissions.map((sub) => {
     const task = tasksMap[sub.task_id];
-    let isLate = false;
-    if (task && task.deadline) {
+    let isLate = sub.status ? sub.status.toUpperCase() === "TERLAMBAT" : false;
+    let category = task?.category || "individu";
+    let taskTitleDisplay = task?.title || sub.tugas_id || sub.task_id;
+
+    if (!sub.status && task && task.deadline) {
       isLate = new Date(sub.submitted_at) > new Date(task.deadline);
     }
-    return { ...sub, isLate };
+
+    return { 
+      ...sub, 
+      isLate, 
+      category,
+      task_title: taskTitleDisplay,
+      displayNama: sub.nama || sub.users?.nama || "-",
+      viewUrl: getCleanViewUrl(sub.file_url)
+    };
   });
 
+  // 🟢 Filter Berdasarkan Kategori, Status, dan Judul Tugas
   const filteredSubmissions = processedSubmissions.filter((sub) => {
-    if (filterLateStatus === "ontime") return !sub.isLate;
-    if (filterLateStatus === "late") return sub.isLate;
-    return true;
+    let matchCat = true;
+    if (filterCategory !== "all") {
+      matchCat = sub.category?.toLowerCase() === filterCategory;
+    }
+
+    let matchStatus = true;
+    if (filterLateStatus === "ontime") matchStatus = !sub.isLate;
+    if (filterLateStatus === "late") matchStatus = sub.isLate;
+
+    let matchTitle = true;
+    if (filterTaskTitle !== "all") {
+      matchTitle = sub.task_title === filterTaskTitle;
+    }
+
+    return matchCat && matchStatus && matchTitle;
   });
+
+  const countOntime = filteredSubmissions.filter((s) => !s.isLate).length;
+  const countLate = filteredSubmissions.filter((s) => s.isLate).length;
+
+  // Daftar Judul Tugas Unik untuk Opsi Dropdown Filter
+  const uniqueTaskTitles = Array.from(
+    new Set(tasks.map((t) => t.title).filter(Boolean))
+  );
 
   return (
     <>
       <Navbar />
-      <div className="dashboard-container" style={{ display: "flex", gap: "24px", maxWidth: "1200px", margin: "0 auto", padding: "20px" }}>
-        <aside className="task-sidebar" style={{ width: "260px", flexShrink: 0 }}>
+      <div className="dashboard-container" style={{ maxWidth: "1200px", width: "100%", margin: "0 auto", padding: "120px 24px 60px 24px", boxSizing: "border-box" }}>
+        <aside className="task-sidebar">
           <div style={{ marginBottom: "15px" }}>
-            <div style={{ marginBottom: "10px", background: "rgba(255, 51, 51, 0.12)", border: "1px solid #FF3333", padding: "6px 12px", borderRadius: "8px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-              <ShieldAlert size={13} style={{ color: "#FF3333" }} />
-              <span style={{ fontSize: "11px", color: "#FF3333", fontWeight: 700 }}>ADMIN</span>
-            </div>
+            {isLoaded && userNama && (
+              <div style={{ marginBottom: "10px", background: "rgba(255, 51, 51, 0.12)", border: "1px solid #FF3333", padding: "6px 12px", borderRadius: "8px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                <ShieldAlert size={13} style={{ color: "#FF3333" }} />
+                <span style={{ fontSize: "11px", color: "#FF3333", fontWeight: 700 }}>{userNama}</span>
+              </div>
+            )}
+
             <h2 className="sidebar-header-title">MENU UTAMA</h2>
           </div>
 
-          <div className="sidebar-menu" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          <div className="sidebar-menu">
             <button type="button" className={`sidebar-btn ${activeTab === "rekap" ? "active" : ""}`} onClick={() => setActiveTab("rekap")}>📊 REKAP PENGUMPULAN</button>
             <button type="button" className={`sidebar-btn ${activeTab === "tugas" ? "active" : ""}`} onClick={() => setActiveTab("tugas")}>➕ TAMBAH TUGAS</button>
             <button type="button" className={`sidebar-btn ${activeTab === "pengumuman" ? "active" : ""}`} onClick={() => setActiveTab("pengumuman")}>📢 BUAT PENGUMUMAN</button>
-            <button type="button" className={`sidebar-btn ${activeTab === "manage" ? "active" : ""}`} onClick={() => setActiveTab("manage")} style={{ color: "#FF3333" }}>🗑️ KELOLA / HAPUS DATA</button>
+            <button type="button" className={`sidebar-btn ${activeTab === "manage" ? "active" : ""}`} onClick={() => setActiveTab("manage")} style={{ color: "#FF3333" }}>⚙️ KELOLA / ARSIP DATA</button>
             <a href="/penugasan" className="sidebar-btn" style={{ marginTop: "15px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)", color: "#FAFAFA", textAlign: "center", textDecoration: "none", display: "block" }}>👁️ TAMPILAN MAHASISWA</a>
           </div>
         </aside>
 
-        <main className="task-main-content" style={{ flex: 1, minWidth: 0 }}>
+        <main className="task-main-content">
           {activeTab === "rekap" && (
-            <div className="clickable-task-card" style={{ cursor: "default" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", marginBottom: "15px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <FileSpreadsheet color="#00FF88" size={20} />
-                  <h3 style={{ color: "#FAFAFA", fontSize: "16px", margin: 0 }}>REKAP PENGUMPULAN TUGAS</h3>
+            <div className="clickable-task-card" style={{ cursor: "default", padding: "16px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "15px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <FileSpreadsheet color="#00FF88" size={20} style={{ flexShrink: 0 }} />
+                    <h3 style={{ color: "#FAFAFA", fontSize: "15px", margin: 0, fontWeight: 700 }}>
+                      REKAP PENGUMPULAN
+                    </h3>
+                  </div>
+                  
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "rgba(0, 255, 136, 0.12)", border: "1px solid #00FF88", color: "#00FF88", whiteSpace: "nowrap" }}>
+                      Tepat Waktu: {countOntime}
+                    </span>
+                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "rgba(255, 51, 51, 0.15)", border: "1px solid #FF3333", color: "#FF3333", whiteSpace: "nowrap" }}>
+                      Terlambat: {countLate}
+                    </span>
+                  </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <Filter size={14} color="#888" />
-                  <select value={filterLateStatus} onChange={(e: any) => setFilterLateStatus(e.target.value)} style={{ background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "6px 12px", borderRadius: "8px", fontSize: "12px", fontWeight: 600 }}>
-                    <option value="all">Semua ({processedSubmissions.length})</option>
-                    <option value="ontime">Tepat Waktu ({processedSubmissions.filter(s => !s.isLate).length})</option>
-                    <option value="late">Terlambat ({processedSubmissions.filter(s => s.isLate).length})</option>
+
+                {/* 🟢 Tiga Dropdown Filter: Kategori, Status, dan Judul Tugas */}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", width: "100%", flexWrap: "wrap" }}>
+                  <Filter size={14} color="#888" style={{ flexShrink: 0 }} />
+                  
+                  {/* Filter Jenis Tugas */}
+                  <select 
+                    value={filterCategory} 
+                    onChange={(e: any) => setFilterCategory(e.target.value)} 
+                    style={{ flex: 1, minWidth: "130px", background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "8px 10px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, outline: "none" }}
+                  >
+                    <option value="all">Semua Kategori</option>
+                    <option value="individu">Tugas Individu</option>
+                    <option value="kelompok">Tugas Kelompok</option>
+                    <option value="angkatan">Tugas Angkatan</option>
+                  </select>
+
+                  {/* Filter Judul Tugas */}
+                  <select 
+                    value={filterTaskTitle} 
+                    onChange={(e: any) => setFilterTaskTitle(e.target.value)} 
+                    style={{ flex: 1.2, minWidth: "150px", background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "8px 10px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, outline: "none" }}
+                  >
+                    <option value="all">Semua Judul Tugas</option>
+                    {uniqueTaskTitles.map((title, idx) => (
+                      <option key={idx} value={title}>
+                        {title}
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Filter Status Pengumpulan */}
+                  <select 
+                    value={filterLateStatus} 
+                    onChange={(e: any) => setFilterLateStatus(e.target.value)} 
+                    style={{ flex: 1, minWidth: "130px", background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "8px 10px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, outline: "none" }}
+                  >
+                    <option value="all">Semua Status ({filteredSubmissions.length})</option>
+                    <option value="ontime">Tepat Waktu</option>
+                    <option value="late">Terlambat</option>
                   </select>
                 </div>
               </div>
-              <div className="detail-divider" style={{ marginBottom: "20px" }} />
-              <div style={{ overflowX: "auto" }}>
+
+              <div className="detail-divider" style={{ marginBottom: "15px" }} />
+
+              <div className="desktop-rekap-table" style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", color: "#FAFAFA", borderCollapse: "collapse", fontSize: "13px" }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#888", textAlign: "left" }}>
-                      <th style={{ padding: "12px" }}>NIM</th>
-                      <th style={{ padding: "12px" }}>NAMA</th>
-                      <th style={{ padding: "12px" }}>TUGAS ID</th>
-                      <th style={{ padding: "12px" }}>WAKTU</th>
-                      <th style={{ padding: "12px" }}>STATUS</th>
-                      <th style={{ padding: "12px" }}>BERKAS</th>
+                      <th style={{ padding: "10px" }}>NIM</th>
+                      <th style={{ padding: "10px" }}>NAMA</th>
+                      <th style={{ padding: "10px" }}>JUDUL TUGAS</th>
+                      <th style={{ padding: "10px" }}>WAKTU</th>
+                      <th style={{ padding: "10px" }}>STATUS</th>
+                      <th style={{ padding: "10px" }}>BERKAS</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredSubmissions.length === 0 ? (
-                      <tr><td colSpan={6} style={{ padding: "20px", textAlign: "center", color: "#666" }}>Tidak ada data.</td></tr>
+                      <tr><td colSpan={6} style={{ padding: "20px", textAlign: "center", color: "#666" }}>Tidak ada data yang sesuai filter.</td></tr>
                     ) : (
                       filteredSubmissions.map((sub, i) => (
                         <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                          <td style={{ padding: "12px", fontFamily: "monospace", fontWeight: "bold", color: sub.isLate ? "#FF3333" : "#00FF88" }}>{sub.user_nim}</td>
-                          <td style={{ padding: "12px" }}>{sub.users?.nama || "-"}</td>
-                          <td style={{ padding: "12px" }}>{sub.task_id}</td>
-                          <td style={{ padding: "12px", color: sub.isLate ? "#FF3333" : "#aaa" }}>{new Date(sub.submitted_at).toLocaleString("id-ID")}</td>
-                          <td style={{ padding: "12px" }}>
-                            {sub.isLate ? <span style={{ background: "rgba(255,51,51,0.15)", border: "1px solid #FF3333", color: "#FF3333", padding: "3px 8px", borderRadius: "50px", fontSize: "10px", fontWeight: 800 }}>TERLAMBAT</span> : <span style={{ background: "rgba(0,255,136,0.12)", border: "1px solid #00FF88", color: "#00FF88", padding: "3px 8px", borderRadius: "50px", fontSize: "10px", fontWeight: 800 }}>TEPAT WAKTU</span>}
+                          <td style={{ padding: "10px", fontFamily: "monospace", fontWeight: "bold", color: sub.isLate ? "#FF3333" : "#00FF88" }}>{sub.user_nim}</td>
+                          <td style={{ padding: "10px", color: "#FAFAFA" }}>{sub.displayNama}</td>
+                          <td style={{ padding: "10px", fontWeight: 600 }}>{sub.task_title}</td>
+                          <td style={{ padding: "10px", color: sub.isLate ? "#FF3333" : "#aaa" }}>{new Date(sub.submitted_at).toLocaleString("id-ID")}</td>
+                          <td style={{ padding: "10px" }}>
+                            {sub.isLate ? (
+                              <span style={{ background: "rgba(255,51,51,0.15)", border: "1px solid #FF3333", color: "#FF3333", padding: "3px 8px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap" }}>TERLAMBAT</span>
+                            ) : (
+                              <span style={{ background: "rgba(0,255,136,0.12)", border: "1px solid #00FF88", color: "#00FF88", padding: "3px 8px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap" }}>TEPAT WAKTU</span>
+                            )}
                           </td>
-                          <td style={{ padding: "12px" }}><a href={sub.file_url} target="_blank" rel="noreferrer" style={{ color: "#FAFAFA", display: "inline-flex", alignItems: "center", gap: "5px", textDecoration: "none", fontWeight: 600 }}><Download size={14} /> Download</a></td>
+                          <td style={{ padding: "10px" }}>
+                            <a href={sub.viewUrl} target="_blank" rel="noreferrer" style={{ color: "#00FF88", display: "inline-flex", alignItems: "center", gap: "5px", textDecoration: "none", fontWeight: 600 }}>
+                              <Eye size={14} /> View Berkas
+                            </a>
+                          </td>
                         </tr>
                       ))
                     )}
                   </tbody>
                 </table>
+              </div>
+
+              <div className="mobile-rekap-cards" style={{ display: "none", flexDirection: "column", gap: "10px" }}>
+                {filteredSubmissions.length === 0 ? (
+                  <p style={{ textAlign: "center", padding: "20px", color: "#666", fontSize: "13px", margin: 0 }}>
+                    Tidak ada data yang sesuai filter.
+                  </p>
+                ) : (
+                  filteredSubmissions.map((sub, i) => (
+                    <div 
+                      key={i} 
+                      style={{ 
+                        background: "transparent", 
+                        borderBottom: "1px solid rgba(255, 255, 255, 0.08)", 
+                        padding: "12px 4px", 
+                        display: "flex", 
+                        flexDirection: "column", 
+                        gap: "8px" 
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontFamily: "monospace", fontWeight: "bold", fontSize: "13px", color: sub.isLate ? "#FF3333" : "#00FF88" }}>
+                          {sub.user_nim}
+                        </span>
+
+                        {sub.isLate ? (
+                          <span style={{ background: "rgba(255,51,51,0.15)", border: "1px solid #FF3333", color: "#FF3333", padding: "2px 8px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap" }}>
+                            TERLAMBAT
+                          </span>
+                        ) : (
+                          <span style={{ background: "rgba(0,255,136,0.12)", border: "1px solid #00FF88", color: "#00FF88", padding: "2px 8px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap" }}>
+                            TEPAT WAKTU
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ fontSize: "13px", color: "#FAFAFA", fontWeight: "600" }}>
+                        {sub.displayNama}
+                      </div>
+
+                      <div style={{ fontSize: "11.5px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
+                        <span style={{ color: "rgba(250, 250, 250, 0.7)" }}>
+                          Judul: <strong style={{ color: "#FAFAFA" }}>{sub.task_title}</strong>
+                        </span>
+                        <span style={{ color: sub.isLate ? "#FF3333" : "#aaa", fontSize: "11px" }}>
+                          {new Date(sub.submitted_at).toLocaleString("id-ID")}
+                        </span>
+                      </div>
+
+                      <div style={{ marginTop: "2px", textAlign: "left" }}>
+                        <a 
+                          href={sub.viewUrl} 
+                          target="_blank" 
+                          rel="noreferrer" 
+                          style={{ 
+                            color: "#00FF88", 
+                            display: "inline-flex", 
+                            alignItems: "center", 
+                            gap: "6px", 
+                            textDecoration: "none", 
+                            fontSize: "12px",
+                            fontWeight: 600 
+                          }}
+                        >
+                          <Eye size={14} /> View Berkas
+                        </a>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}
@@ -333,43 +569,137 @@ export default function AdminDashboard() {
           {activeTab === "manage" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "25px" }}>
               <div className="clickable-task-card" style={{ cursor: "default" }}>
-                <h3 style={{ color: "#FAFAFA", fontSize: "15px", marginBottom: "15px", margin: 0 }}>⚙️ KELOLA & EDIT TUGAS</h3>
+                <h3 style={{ color: "#FAFAFA", fontSize: "15px", marginBottom: "15px", margin: 0 }}>
+                  ⚙️ KELOLA & ARSIP TUGAS
+                </h3>
                 <div style={{ overflowX: "auto", marginTop: "15px" }}>
                   <table style={{ width: "100%", color: "#FAFAFA", borderCollapse: "collapse", fontSize: "13px" }}>
-                    <thead><tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#888", textAlign: "left" }}><th style={{ padding: "10px" }}>ID</th><th style={{ padding: "10px" }}>KATEGORI</th><th style={{ padding: "10px" }}>JUDUL</th><th style={{ padding: "10px" }}>AKSI</th></tr></thead>
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#888", textAlign: "left" }}>
+                        <th style={{ padding: "10px" }}>ID</th>
+                        <th style={{ padding: "10px" }}>KATEGORI</th>
+                        <th style={{ padding: "10px" }}>JUDUL</th>
+                        <th style={{ padding: "10px" }}>VISIBILITAS</th>
+                        <th style={{ padding: "10px" }}>AKSI</th>
+                      </tr>
+                    </thead>
                     <tbody>
-                      {tasks.length === 0 ? <tr><td colSpan={4} style={{ padding: "15px", color: "#666" }}>Kosong.</td></tr> : tasks.map((t) => (
-                        <tr key={t.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                          <td style={{ padding: "10px", color: "#00FF88", fontFamily: "monospace" }}>{t.id}</td>
-                          <td style={{ padding: "10px" }}>{t.category}</td>
-                          <td style={{ padding: "10px" }}>{t.title}</td>
-                          <td style={{ padding: "10px", display: "flex", gap: "8px" }}>
-                            <button onClick={() => { setEditTaskData({ ...t, rules: t.rules?.join("\n") || "", deadline: new Date(t.deadline).toISOString().slice(0, 16) }); setIsEditTaskModalOpen(true); }} style={{ background: "rgba(0,255,136,0.15)", border: "1px solid #00FF88", color: "#00FF88", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}><Pencil size={13} /> Edit</button>
-                            <button onClick={() => handleDeleteTask(t.id)} style={{ background: "rgba(255,51,51,0.15)", border: "1px solid #FF3333", color: "#FF3333", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}><Trash2 size={13} /> Hapus</button>
-                          </td>
-                        </tr>
-                      ))}
+                      {tasks.length === 0 ? (
+                        <tr><td colSpan={5} style={{ padding: "15px", color: "#666" }}>Kosong.</td></tr>
+                      ) : (
+                        tasks.map((t) => (
+                          <tr key={t.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                            <td style={{ padding: "10px", color: "#00FF88", fontFamily: "monospace" }}>{t.id}</td>
+                            <td style={{ padding: "10px" }}>{t.category}</td>
+                            <td style={{ padding: "10px" }}>{t.title}</td>
+                            
+                            <td style={{ padding: "10px", whiteSpace: "nowrap" }}>
+                              {t.is_active !== false ? (
+                                <span style={{ background: "rgba(0,255,136,0.12)", border: "1px solid #00FF88", color: "#00FF88", padding: "4px 10px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap", display: "inline-block" }}>
+                                  AKTIF (TAMPIL)
+                                </span>
+                              ) : (
+                                <span style={{ background: "rgba(255,51,51,0.15)", border: "1px solid #FF3333", color: "#FF3333", padding: "4px 10px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap", display: "inline-block" }}>
+                                  DISEMBUNYIKAN
+                                </span>
+                              )}
+                            </td>
+
+                            <td style={{ padding: "10px", display: "flex", gap: "8px", whiteSpace: "nowrap" }}>
+                              <button 
+                                onClick={() => { 
+                                  setEditTaskData({ ...t, rules: t.rules?.join("\n") || "", deadline: new Date(t.deadline).toISOString().slice(0, 16) }); 
+                                  setIsEditTaskModalOpen(true); 
+                                }} 
+                                style={{ background: "rgba(0,255,136,0.15)", border: "1px solid #00FF88", color: "#00FF88", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}
+                              >
+                                <Pencil size={13} /> Edit
+                              </button>
+
+                              <button 
+                                onClick={() => handleToggleTaskStatus(t.id, t.is_active !== false)} 
+                                style={{ 
+                                  background: t.is_active !== false ? "rgba(255,170,0,0.15)" : "rgba(0,255,136,0.15)", 
+                                  border: t.is_active !== false ? "1px solid #FFAA00" : "1px solid #00FF88", 
+                                  color: t.is_active !== false ? "#FFAA00" : "#00FF88", 
+                                  padding: "6px 12px", 
+                                  borderRadius: "6px", 
+                                  cursor: "pointer",
+                                  whiteSpace: "nowrap"
+                                }}
+                              >
+                                {t.is_active !== false ? "🚫 Sembunyikan" : "👁️ Tampilkan"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
               </div>
 
               <div className="clickable-task-card" style={{ cursor: "default" }}>
-                <h3 style={{ color: "#FAFAFA", fontSize: "15px", marginBottom: "15px", margin: 0 }}>📢 KELOLA & EDIT PENGUMUMAN</h3>
+                <h3 style={{ color: "#FAFAFA", fontSize: "15px", marginBottom: "15px", margin: 0 }}>
+                  📢 KELOLA & ARSIP PENGUMUMAN
+                </h3>
                 <div style={{ overflowX: "auto", marginTop: "15px" }}>
                   <table style={{ width: "100%", color: "#FAFAFA", borderCollapse: "collapse", fontSize: "13px" }}>
-                    <thead><tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#888", textAlign: "left" }}><th style={{ padding: "10px" }}>JUDUL</th><th style={{ padding: "10px" }}>TANGGAL</th><th style={{ padding: "10px" }}>AKSI</th></tr></thead>
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#888", textAlign: "left" }}>
+                        <th style={{ padding: "10px" }}>JUDUL</th>
+                        <th style={{ padding: "10px" }}>TANGGAL</th>
+                        <th style={{ padding: "10px" }}>VISIBILITAS</th>
+                        <th style={{ padding: "10px" }}>AKSI</th>
+                      </tr>
+                    </thead>
                     <tbody>
-                      {announcements.length === 0 ? <tr><td colSpan={3} style={{ padding: "15px", color: "#666" }}>Kosong.</td></tr> : announcements.map((a) => (
-                        <tr key={a.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                          <td style={{ padding: "10px" }}>{a.title}</td>
-                          <td style={{ padding: "10px", color: "#aaa" }}>{new Date(a.created_at).toLocaleDateString("id-ID")}</td>
-                          <td style={{ padding: "10px", display: "flex", gap: "8px" }}>
-                            <button onClick={() => { setEditAnnData(a); setIsEditAnnModalOpen(true); }} style={{ background: "rgba(0,255,136,0.15)", border: "1px solid #00FF88", color: "#00FF88", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}><Pencil size={13} /> Edit</button>
-                            <button onClick={() => handleDeleteAnnouncement(a.id)} style={{ background: "rgba(255,51,51,0.15)", border: "1px solid #FF3333", color: "#FF3333", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}><Trash2 size={13} /> Hapus</button>
-                          </td>
-                        </tr>
-                      ))}
+                      {announcements.length === 0 ? (
+                        <tr><td colSpan={4} style={{ padding: "15px", color: "#666" }}>Kosong.</td></tr>
+                      ) : (
+                        announcements.map((a) => (
+                          <tr key={a.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                            <td style={{ padding: "10px" }}>{a.title}</td>
+                            <td style={{ padding: "10px", color: "#aaa" }}>{new Date(a.created_at).toLocaleDateString("id-ID")}</td>
+                            
+                            <td style={{ padding: "10px", whiteSpace: "nowrap" }}>
+                              {a.is_active !== false ? (
+                                <span style={{ background: "rgba(0,255,136,0.12)", border: "1px solid #00FF88", color: "#00FF88", padding: "4px 10px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap", display: "inline-block" }}>
+                                  AKTIF (TAMPIL)
+                                </span>
+                              ) : (
+                                <span style={{ background: "rgba(255,51,51,0.15)", border: "1px solid #FF3333", color: "#FF3333", padding: "4px 10px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap", display: "inline-block" }}>
+                                  DISEMBUNYIKAN
+                                </span>
+                              )}
+                            </td>
+
+                            <td style={{ padding: "10px", display: "flex", gap: "8px", whiteSpace: "nowrap" }}>
+                              <button 
+                                onClick={() => { setEditAnnData(a); setIsEditAnnModalOpen(true); }} 
+                                style={{ background: "rgba(0,255,136,0.15)", border: "1px solid #00FF88", color: "#00FF88", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}
+                              >
+                                <Pencil size={13} /> Edit
+                              </button>
+
+                              <button 
+                                onClick={() => handleToggleAnnStatus(a.id, a.title, a.is_active !== false)} 
+                                style={{ 
+                                  background: a.is_active !== false ? "rgba(255,170,0,0.15)" : "rgba(0,255,136,0.15)", 
+                                  border: a.is_active !== false ? "1px solid #FFAA00" : "1px solid #00FF88", 
+                                  color: a.is_active !== false ? "#FFAA00" : "#00FF88", 
+                                  padding: "6px 12px", 
+                                  borderRadius: "6px", 
+                                  cursor: "pointer",
+                                  whiteSpace: "nowrap"
+                                }}
+                              >
+                                {a.is_active !== false ? "🚫 Sembunyikan" : "👁️ Tampilkan"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -378,6 +708,42 @@ export default function AdminDashboard() {
           )}
         </main>
       </div>
+
+      {/* MODAL KONFIRMASI CUSTOM */}
+      {confirmModal.isOpen && (
+        <div className="modal-overlay active" style={{ zIndex: 99999999 }} onClick={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}>
+          <div className="modal-card" style={{ maxWidth: "420px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <ShieldAlert className="modal-icon" style={{ color: "#FFAA00" }} />
+              <h2 style={{ color: "#FFAA00", fontSize: "16px" }}>{confirmModal.title}</h2>
+            </div>
+            
+            <p className="modal-desc" style={{ marginBottom: "25px", fontSize: "13px" }}>
+              {confirmModal.description}
+            </p>
+
+            <div className="modal-buttons" style={{ flexDirection: "row", gap: "10px" }}>
+              <button 
+                type="button" 
+                className="btn-modal-close" 
+                onClick={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+                style={{ flex: 1 }}
+              >
+                BATAL
+              </button>
+              
+              <button 
+                type="button" 
+                className="btn-modal-primary" 
+                onClick={confirmModal.onConfirm}
+                style={{ flex: 1, background: "linear-gradient(135deg, #1B22A7 0%, #121674 100%)" }}
+              >
+                YA, LANJUTKAN
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL EDIT PENGUMUMAN */}
       {isEditAnnModalOpen && editAnnData && (
@@ -426,7 +792,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 🏝️ DYNAMIC ISLAND SEMPURNA */}
+      {/* DYNAMIC ISLAND TOAST */}
       <div style={{ position: "fixed", top: "110px", left: "50%", transform: "translateX(-50%)", zIndex: 99999999, pointerEvents: "none", display: "flex", justifyContent: "center", alignItems: "center" }}>
         <div style={{
           background: "#0a0a0e",

@@ -3,23 +3,23 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import Navbar from "@/components/Navbar";
 import { 
   Megaphone, 
-  Video, 
   FileText, 
   Users, 
   CheckCircle2, 
   AlertCircle, 
   UploadCloud, 
   FileCheck,
-  Loader2,
   User,
   ShieldAlert,
   Inbox,
   Clock,
   Pencil,
-  X
+  X,
+  ExternalLink
 } from "lucide-react";
 
 export default function PenugasanPage() {
@@ -38,17 +38,18 @@ export default function PenugasanPage() {
   const [editAnnData, setEditAnnData] = useState<any>(null);
 
   const [currentNim, setCurrentNim] = useState<string | null>(null);
-  const [userNama, setUserNama] = useState<string>("Mahasiswa");
-  const [userRole, setUserRole] = useState<string>("mahasiswa");
+  
+  // State diawali kosong agar tidak ada hentakan teks default saat refresh
+  const [userNama, setUserNama] = useState<string>("");
+  const [userRole, setUserRole] = useState<string>("");
+  const [isLoaded, setIsLoaded] = useState(false);
 
   const [dbAnnouncements, setDbAnnouncements] = useState<any[]>([]);
   const [dbTasks, setDbTasks] = useState<any[]>([]);
   const [submissionsMap, setSubmissionsMap] = useState<{ [key: string]: any }>({});
 
-  // State untuk Proteksi Akses Dibatasi
   const [isAccessBlocked, setIsAccessBlocked] = useState(false);
 
-  // 🏝️ State Dynamic Island
   const [toast, setToast] = useState<{ show: boolean; isExpanded: boolean; message: string; subMessage: string; isError: boolean }>({
     show: false,
     isExpanded: false,
@@ -74,21 +75,29 @@ export default function PenugasanPage() {
   useEffect(() => {
     const savedNim = localStorage.getItem("user_nim");
     const savedNama = localStorage.getItem("user_nama");
+    const savedRole = localStorage.getItem("user_role");
 
     if (!savedNim) {
       setIsAccessBlocked(true);
       document.body.style.overflow = "hidden";
+      setIsLoaded(true);
       return;
     }
 
     if (savedNama) setUserNama(savedNama);
+    if (savedRole) setUserRole(savedRole);
     setCurrentNim(savedNim);
 
     supabase.from("users").select("role, nama").eq("nim", savedNim).single().then(({ data }) => {
       if (data) {
         setUserRole(data.role || "mahasiswa");
-        if (data.nama) setUserNama(data.nama);
+        if (data.nama) {
+          setUserNama(data.nama);
+          localStorage.setItem("user_nama", data.nama);
+        }
+        if (data.role) localStorage.setItem("user_role", data.role);
       }
+      setIsLoaded(true);
     });
   }, []);
 
@@ -98,7 +107,7 @@ export default function PenugasanPage() {
     try {
       const { data: subData } = await supabase
         .from("submissions")
-        .select("task_id, submitted_at, file_url")
+        .select("task_id, submitted_at, file_url, file_name, status, nama")
         .eq("user_nim", currentNim);
 
       if (subData) {
@@ -112,6 +121,7 @@ export default function PenugasanPage() {
       const { data: annData } = await supabase
         .from("announcements")
         .select("*")
+        .eq("is_active", true)
         .order("created_at", { ascending: true });
 
       if (annData) setDbAnnouncements(annData);
@@ -119,6 +129,7 @@ export default function PenugasanPage() {
       const { data: taskData } = await supabase
         .from("tasks")
         .select("*")
+        .eq("is_active", true)
         .order("created_at", { ascending: true });
 
       if (taskData) setDbTasks(taskData);
@@ -167,13 +178,43 @@ export default function PenugasanPage() {
     setIsUploading(true);
 
     try {
-      const fileExt = selectedFile.name.split('.').pop();
-      const fileName = `${activeTaskId}_${currentNim}_${Date.now()}.${fileExt}`;
-      const filePath = `${activeTaskId}/${fileName}`;
+      const targetTask = dbTasks.find((t) => t.id === activeTaskId);
+      const now = new Date();
+
+      const sanitize = (text: string) => {
+        return text.trim().toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-");
+      };
+
+      // Pastikan Nama selalu terisi sempurna baik tepat waktu maupun terlambat
+      const finalNama = userNama || localStorage.getItem("user_nama") || currentNim;
+      const cleanNim = sanitize(currentNim);
+      const cleanNama = sanitize(finalNama);
+      const cleanKategori = sanitize(targetTask?.category || "tugas");
+      const cleanJudul = sanitize(targetTask?.title || activeTaskId);
+      const fileExt = selectedFile.name.split('.').pop()?.toLowerCase() || 'pdf';
+
+      const formattedFileName = `${cleanNim}_${cleanNama}_${cleanKategori}_${cleanJudul}.${fileExt}`;
+      const filePath = `${activeTaskId}/${formattedFileName}`;
+
+      let isLate = false;
+      if (targetTask?.deadline) {
+        const deadlineDate = new Date(targetTask.deadline);
+        if (!isNaN(deadlineDate.getTime())) {
+          isLate = now.getTime() > deadlineDate.getTime();
+        }
+      }
+      const statusText = isLate ? "TERLAMBAT" : "TEPAT WAKTU";
 
       const { error: uploadError } = await supabase.storage
         .from('task-files')
-        .upload(filePath, selectedFile, { upsert: true, cacheControl: '3600' });
+        .upload(filePath, selectedFile, { 
+          upsert: true, 
+          cacheControl: '3600',
+          contentType: selectedFile.type,
+          headers: {
+            'Content-Disposition': `inline; filename="${formattedFileName}"`
+          }
+        });
 
       if (uploadError) throw new Error(`Storage error: ${uploadError.message}`);
 
@@ -181,7 +222,9 @@ export default function PenugasanPage() {
         .from('task-files')
         .getPublicUrl(filePath);
 
-      const submittedAt = new Date().toISOString();
+      // URL download dengan parameter nama file terformat
+      const downloadPublicUrl = `${urlData.publicUrl}?download=${encodeURIComponent(formattedFileName)}`;
+      const submittedAt = now.toISOString();
 
       const { error: dbError } = await supabase
         .from('submissions')
@@ -189,9 +232,12 @@ export default function PenugasanPage() {
           {
             task_id: activeTaskId,
             user_nim: currentNim,
-            file_url: urlData.publicUrl,
-            file_name: selectedFile.name,
+            nama: finalNama,
+            tugas_id: targetTask?.title || activeTaskId,
+            file_url: downloadPublicUrl,
+            file_name: formattedFileName,
             submitted_at: submittedAt,
+            status: statusText,
           },
           { onConflict: 'task_id,user_nim' }
         );
@@ -200,12 +246,25 @@ export default function PenugasanPage() {
 
       setSubmissionsMap((prev) => ({
         ...prev,
-        [activeTaskId]: { task_id: activeTaskId, submitted_at: submittedAt, file_url: urlData.publicUrl }
+        [activeTaskId]: { 
+          task_id: activeTaskId, 
+          submitted_at: submittedAt, 
+          file_url: downloadPublicUrl, 
+          file_name: formattedFileName,
+          status: statusText,
+          nama: finalNama
+        }
       }));
+
       setIsUploadModalOpen(false);
       setSelectedFile(null);
 
-      triggerToast("BERKAS DITERIMA", "Tugas berhasil diunggah!", false);
+      if (isLate) {
+        triggerToast("BERKAS DITERIMA (TERLAMBAT)", "Tugas berhasil diunggah namun melewati deadline!", true);
+      } else {
+        triggerToast("BERKAS DITERIMA", "Tugas berhasil diunggah tepat waktu!", false);
+      }
+
     } catch (error: any) {
       console.error("Upload Error:", error);
       triggerToast("GAGAL UNGGAH", error.message || "Terjadi kesalahan saat mengunggah berkas.", true);
@@ -277,7 +336,7 @@ export default function PenugasanPage() {
       return { isSubmitted: false, isLate: isPastDeadline };
     }
 
-    const isLateSubmitted = new Date(sub.submitted_at) > new Date(task.deadline);
+    const isLateSubmitted = sub.status ? sub.status.toUpperCase() === "TERLAMBAT" : new Date(sub.submitted_at) > new Date(task.deadline);
     return { isSubmitted: true, isLate: isLateSubmitted };
   };
 
@@ -298,6 +357,7 @@ export default function PenugasanPage() {
 
   const renderTaskCard = (task: any) => {
     const { isSubmitted, isLate } = getTaskSubmissionStatus(task);
+    const userSubmission = submissionsMap[task.id];
 
     return (
       <div 
@@ -310,33 +370,34 @@ export default function PenugasanPage() {
           marginBottom: "16px",
           display: "flex",
           flexDirection: "column",
-          borderColor: isSubmitted && isLate ? "#FF3333" : undefined
+          borderColor: (isSubmitted && isLate) || (!isSubmitted && isLate) ? "#FF3333" : undefined
         }}
       >
-        <div className="task-card-summary" style={{ display: "flex", alignItems: "center", gap: "16px", width: "100%" }}>
-          <div className="task-icon-box" style={{ flexShrink: 0 }}>
+        <div className="task-card-summary" style={{ display: "flex", alignItems: "flex-start", gap: "16px", width: "100%" }}>
+          <div className="task-icon-box" style={{ flexShrink: 0, marginTop: "2px" }}>
             {renderTaskIcon(task)}
           </div>
+
           <div className="task-summary-text" style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-                <h3 style={{ margin: 0, fontSize: "16px", color: "#FAFAFA" }}>{task.title}</h3>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", width: "100%" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+                <h3 style={{ margin: 0, fontSize: "16px", color: "#FAFAFA", fontWeight: 700 }}>{task.title}</h3>
                 
                 {isSubmitted && !isLate && (
-                  <span style={{ background: "rgba(0, 255, 136, 0.12)", border: "1px solid #00FF88", color: "#00FF88", fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "50px", letterSpacing: "1px", textTransform: "uppercase", display: "inline-flex", alignItems: "center", gap: "5px" }}>
-                    <CheckCircle2 style={{ width: "12px", height: "12px" }} /> Telah Mengumpulkan
+                  <span style={{ background: "rgba(0, 255, 136, 0.12)", border: "1px solid #00FF88", color: "#00FF88", fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "50px", letterSpacing: "1px", textTransform: "uppercase", display: "inline-flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
+                    <CheckCircle2 style={{ width: "12px", height: "12px" }} /> TEPAT WAKTU
                   </span>
                 )}
 
                 {isSubmitted && isLate && (
-                  <span style={{ background: "rgba(255, 51, 51, 0.15)", border: "1px solid #FF3333", color: "#FF3333", fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "50px", letterSpacing: "1px", textTransform: "uppercase", display: "inline-flex", alignItems: "center", gap: "5px" }}>
-                    <AlertCircle style={{ width: "12px", height: "12px" }} /> Terlambat Mengumpulkan
+                  <span style={{ background: "rgba(255, 51, 51, 0.15)", border: "1px solid #FF3333", color: "#FF3333", fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "50px", letterSpacing: "1px", textTransform: "uppercase", display: "inline-flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
+                    <AlertCircle style={{ width: "12px", height: "12px" }} /> TERLAMBAT
                   </span>
                 )}
 
                 {!isSubmitted && isLate && (
-                  <span style={{ background: "rgba(255, 170, 0, 0.15)", border: "1px solid #FFAA00", color: "#FFAA00", fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "50px", letterSpacing: "1px", textTransform: "uppercase", display: "inline-flex", alignItems: "center", gap: "5px" }}>
-                    <Clock style={{ width: "12px", height: "12px" }} /> Melewati Deadline
+                  <span style={{ background: "rgba(255, 51, 51, 0.15)", border: "1px solid #FF3333", color: "#FF3333", fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "50px", letterSpacing: "1px", textTransform: "uppercase", display: "inline-flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
+                    <AlertCircle style={{ width: "12px", height: "12px" }} /> TERLAMBAT
                   </span>
                 )}
               </div>
@@ -364,14 +425,16 @@ export default function PenugasanPage() {
                     cursor: "pointer",
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: "5px"
+                    gap: "5px",
+                    flexShrink: 0
                   }}
                 >
                   <Pencil size={12} /> EDIT TUGAS
                 </button>
               )}
             </div>
-            <span className="task-meta-subtitle" style={{ color: "rgba(250, 250, 250, 0.6)", fontSize: "12px", marginTop: "4px", display: "block" }}>
+
+            <span className="task-meta-subtitle" style={{ color: "rgba(250, 250, 250, 0.6)", fontSize: "12px", marginTop: "6px", display: "block" }}>
               {task.rules?.length || 0} Ketentuan • Klik untuk rincian & upload
             </span>
           </div>
@@ -382,21 +445,20 @@ export default function PenugasanPage() {
             {task.rules?.map((rule: string, idx: number) => (
               <div 
                 key={idx} 
-                className="point-row" 
                 style={{ 
-                  display: "flex", 
-                  alignItems: "flex-start", 
-                  gap: "12px", 
+                  display: "grid", 
+                  gridTemplateColumns: "24px 1fr", 
+                  alignItems: "start", 
+                  gap: "10px", 
                   marginBottom: "10px", 
                   textAlign: "left" 
                 }}
               >
                 <span 
-                  className="num-bullet" 
                   style={{ 
                     color: "#FAFAFA",
                     fontWeight: 700, 
-                    fontSize: "12px",
+                    fontSize: "11px",
                     width: "22px",
                     height: "22px",
                     borderRadius: "50%",
@@ -405,8 +467,7 @@ export default function PenugasanPage() {
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    flexShrink: 0,
-                    marginTop: "2px"
+                    flexShrink: 0
                   }}
                 >
                   {idx + 1}
@@ -417,14 +478,37 @@ export default function PenugasanPage() {
                     fontSize: "13.5px", 
                     color: "rgba(250, 250, 250, 0.85)", 
                     textAlign: "left", 
-                    lineHeight: "1.5",
-                    flex: 1 
+                    lineHeight: "1.5"
                   }}
                 >
                   {rule}
                 </p>
               </div>
             ))}
+
+            {userSubmission && (
+              <div style={{ marginTop: "15px", background: "rgba(0, 255, 136, 0.06)", border: "1px solid rgba(0, 255, 136, 0.3)", borderRadius: "10px", padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", overflow: "hidden" }}>
+                  <FileCheck size={18} style={{ color: "#00FF88", flexShrink: 0 }} />
+                  <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                    <span style={{ fontSize: "11px", color: "#00FF88", fontWeight: 700, textTransform: "uppercase" }}>Berkas Dikirim</span>
+                    <span style={{ fontSize: "12px", color: "#FAFAFA", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {userSubmission.file_name || "Lihat File Tugas Anda"}
+                    </span>
+                  </div>
+                </div>
+
+                <a 
+                  href={userSubmission.file_url} 
+                  target="_blank" 
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ background: "#00FF88", color: "#000", fontSize: "11px", fontWeight: 800, padding: "5px 12px", borderRadius: "6px", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "4px", flexShrink: 0 }}
+                >
+                  CEK BERKAS <ExternalLink size={12} />
+                </a>
+              </div>
+            )}
 
             <div className="task-action-footer" style={{ marginTop: "16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
               <span className="deadline-tag" style={{ fontSize: "11px", color: isLate ? "#FF3333" : "#00FF88", fontWeight: 700, letterSpacing: "0.5px" }}>
@@ -457,31 +541,40 @@ export default function PenugasanPage() {
         <Navbar />
       </div>
 
-      <div className={`dashboard-container ${isAccessBlocked ? "blur-behind" : ""}`} style={{ display: "flex", gap: "24px", maxWidth: "1200px", margin: "0 auto", padding: "120px 20px 20px 20px", flex: 1, width: "100%" }}>
-        {/* SIDEBAR KIRI */}
-        <aside className="task-sidebar" style={{ width: "260px", flexShrink: 0 }}>
+      <div 
+        className={`dashboard-container ${isAccessBlocked ? "blur-behind" : ""}`}
+        style={{
+          maxWidth: "1200px",
+          width: "100%",
+          margin: "0 auto",
+          padding: "120px 24px 60px 24px",
+          boxSizing: "border-box"
+        }}
+      >
+        <aside className="task-sidebar">
           <div style={{ marginBottom: "15px" }}>
-            {userRole === "admin" ? (
-              <div style={{ marginBottom: "10px", background: "rgba(255, 51, 51, 0.12)", border: "1px solid #FF3333", padding: "6px 12px", borderRadius: "8px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                <ShieldAlert size={13} style={{ color: "#FF3333" }} />
-                <span style={{ fontSize: "11px", color: "#FF3333", fontWeight: 700 }}>ADMIN</span>
-              </div>
-            ) : userRole === "panitia" ? (
-              <div style={{ marginBottom: "10px", background: "rgba(0, 255, 136, 0.1)", border: "1px solid #00FF88", padding: "6px 12px", borderRadius: "8px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                <User size={13} style={{ color: "#00FF88" }} />
-                <span style={{ fontSize: "11px", color: "#00FF88", fontWeight: 700 }}>PANITIA</span>
-              </div>
-            ) : (
-              <div style={{ marginBottom: "10px", background: "rgba(0, 255, 136, 0.1)", border: "1px solid #00FF88", padding: "6px 12px", borderRadius: "8px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                <User size={13} style={{ color: "#00FF88" }} />
-                <span style={{ fontSize: "11px", color: "#00FF88", fontWeight: 700, textTransform: "uppercase" }}>{userNama}</span>
+            {isLoaded && userNama && (
+              <div style={{ 
+                marginBottom: "10px", 
+                background: userRole === "admin" ? "rgba(255, 51, 51, 0.12)" : "rgba(0, 255, 136, 0.1)", 
+                border: userRole === "admin" ? "1px solid #FF3333" : "1px solid #00FF88", 
+                padding: "6px 12px", 
+                borderRadius: "8px", 
+                display: "inline-flex", 
+                alignItems: "center", 
+                gap: "6px" 
+              }}>
+                {userRole === "admin" ? <ShieldAlert size={13} style={{ color: "#FF3333" }} /> : <User size={13} style={{ color: "#00FF88" }} />}
+                <span style={{ fontSize: "11px", color: userRole === "admin" ? "#FF3333" : "#00FF88", fontWeight: 700, textTransform: "uppercase" }}>
+                  {userNama}
+                </span>
               </div>
             )}
 
             <h2 className="sidebar-header-title">MENU UTAMA</h2>
           </div>
 
-          <div className="sidebar-menu" style={{ display: "flex", flexDirection: "column", gap: "8px"}}>
+          <div className="sidebar-menu">
             <button type="button" className={`sidebar-btn ${activeTab === "pengumuman" ? "active" : ""}`} onClick={() => setActiveTab("pengumuman")}>
               PENGUMUMAN
             </button>
@@ -507,8 +600,7 @@ export default function PenugasanPage() {
           </div>
         </aside>
 
-        {/* KONTEN UTAMA KANAN */}
-        <main className="task-main-content" style={{ flex: 1, minWidth: 0 }}>
+        <main className="task-main-content">
           {activeTab === "pengumuman" && (
             <div className="tab-panel active">
               {dbAnnouncements.length > 0 ? (
@@ -610,7 +702,7 @@ export default function PenugasanPage() {
         </main>
       </div>
 
-      {/* MODAL AKSES DIBATASI (JIKA BELUM LOGIN) */}
+      {/* MODAL AKSES DIBATASI */}
       {isAccessBlocked && (
         <div className="modal-overlay active" style={{ zIndex: 99999999 }}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
@@ -700,7 +792,7 @@ export default function PenugasanPage() {
         </div>
       )}
 
-      {/* MODAL EDIT TUGAS LANDSCAPE */}
+      {/* MODAL EDIT TUGAS */}
       {isEditTaskModalOpen && editTaskData && (
         <div style={{ zIndex: 9999999, position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={() => !isUploading && setIsEditTaskModalOpen(false)}>
           <div style={{ maxWidth: "850px", width: "100%", background: "#111115", border: "1px solid #00FF88", borderRadius: "16px", padding: "24px 28px", boxShadow: "0 0 50px rgba(0, 255, 136, 0.25)", maxHeight: "85vh", overflowY: "auto", textAlign: "left" }} onClick={(e) => e.stopPropagation()}>
@@ -743,7 +835,7 @@ export default function PenugasanPage() {
         </div>
       )}
 
-      {/* 🏝️ DYNAMIC ISLAND SEMPURNA */}
+      {/* DYNAMIC ISLAND TOAST */}
       <div style={{ position: "fixed", top: "110px", left: "50%", transform: "translateX(-50%)", zIndex: 99999999, pointerEvents: "none", display: "flex", justifyContent: "center", alignItems: "center" }}>
         <div style={{
           background: "#0a0a0e",
