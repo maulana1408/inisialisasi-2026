@@ -136,7 +136,7 @@ export default function Home() {
               <div className="about-glow-effect"></div>
               <div className="about-outer-frame">
                 <div className="about-inner-photo-frame">
-                  <img src="assets/fotobarenginis.png" alt="Dokumentasi Inisialisasi" className="about-img-fluid" />
+                  <img src="assets/fotobarenginis.webp" alt="Dokumentasi Inisialisasi" className="about-img-fluid" />
                 </div>
               </div>
             </div>
@@ -252,11 +252,11 @@ export default function Home() {
             </div>
             <div className="grid-2">
               <div className="attribute-card flex-center">
-                <div className="image-border-box"><img src="assets/atribut-laki.png" alt="Atribut Laki-Laki" className="responsive-img" /></div>
+                <div className="image-border-box"><img src="assets/atribut-laki.webp" alt="Atribut Laki-Laki" className="responsive-img" /></div>
                 <div className="attr-badges"><span className="badge-item">Rambut Rapi</span><span className="badge-item">Bersabuk</span><span className="badge-item">Sepatu Pantofel</span></div>
               </div>
               <div className="attribute-card flex-center">
-                <div className="image-border-box"><img src="assets/atribut-perempuan.png" alt="Atribut Perempuan" className="responsive-img" /></div>
+                <div className="image-border-box"><img src="assets/atribut-perempuan.webp" alt="Atribut Perempuan" className="responsive-img" /></div>
                 <div className="attr-badges"><span className="badge-item">Kerudung Rapi</span><span className="badge-item">Bersabuk</span><span className="badge-item">Sepatu Pantofel</span></div>
               </div>
             </div>
@@ -371,7 +371,7 @@ export default function Home() {
           <div className="footer-left" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <div style={{ width: "42px", height: "42px", position: "relative", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <Image 
-                src="/assets/logoinis.png" 
+                src="/assets/logoinis.webp" 
                 alt="Logo Inisialisasi Footer" 
                 width={28} 
                 height={28} 

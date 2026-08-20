@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Outfit } from "next/font/google";
 import "./globals.css";
+import DynamicFavicon from "@/components/DynamicFavicon";
 
 const outfit = Outfit({
   subsets: ["latin"],
@@ -29,7 +30,10 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <DynamicFavicon />
+        {children}
+      </body>
     </html>
   );
 }
