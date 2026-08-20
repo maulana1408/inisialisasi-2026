@@ -136,7 +136,7 @@ export default function Home() {
               <div className="about-glow-effect"></div>
               <div className="about-outer-frame">
                 <div className="about-inner-photo-frame">
-                  <img src="assets/fotobarenginis.jpg" alt="Dokumentasi Inisialisasi" className="about-img-fluid" />
+                  <img src="assets/fotobarenginis.png" alt="Dokumentasi Inisialisasi" className="about-img-fluid" />
                 </div>
               </div>
             </div>

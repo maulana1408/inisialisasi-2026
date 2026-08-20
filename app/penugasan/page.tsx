@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
 import Navbar from "@/components/Navbar";
 import { 
   Megaphone, 
@@ -16,10 +15,11 @@ import {
   User,
   ShieldAlert,
   Inbox,
-  Clock,
   Pencil,
   X,
-  ExternalLink
+  ExternalLink,
+  Award,
+  CheckCircle
 } from "lucide-react";
 
 export default function PenugasanPage() {
@@ -39,9 +39,10 @@ export default function PenugasanPage() {
 
   const [currentNim, setCurrentNim] = useState<string | null>(null);
   
-  // State diawali kosong agar tidak ada hentakan teks default saat refresh
   const [userNama, setUserNama] = useState<string>("");
   const [userRole, setUserRole] = useState<string>("");
+  const [userPoints, setUserPoints] = useState<number>(0);
+  const [isGraduatedStatus, setIsGraduatedStatus] = useState<boolean>(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
   const [dbAnnouncements, setDbAnnouncements] = useState<any[]>([]);
@@ -88,9 +89,11 @@ export default function PenugasanPage() {
     if (savedRole) setUserRole(savedRole);
     setCurrentNim(savedNim);
 
-    supabase.from("users").select("role, nama").eq("nim", savedNim).single().then(({ data }) => {
+    supabase.from("users").select("role, nama, total_points, is_graduated").eq("nim", savedNim).single().then(({ data }) => {
       if (data) {
         setUserRole(data.role || "mahasiswa");
+        setUserPoints(data.total_points || 0);
+        setIsGraduatedStatus(data.is_graduated || false);
         if (data.nama) {
           setUserNama(data.nama);
           localStorage.setItem("user_nama", data.nama);
@@ -105,6 +108,18 @@ export default function PenugasanPage() {
     if (!currentNim) return;
 
     try {
+      // Refresh data poin terbaru user
+      const { data: userData } = await supabase
+        .from("users")
+        .select("total_points, is_graduated")
+        .eq("nim", currentNim)
+        .single();
+
+      if (userData) {
+        setUserPoints(userData.total_points || 0);
+        setIsGraduatedStatus(userData.is_graduated || false);
+      }
+
       const { data: subData } = await supabase
         .from("submissions")
         .select("task_id, submitted_at, file_url, file_name, status, nama")
@@ -185,7 +200,6 @@ export default function PenugasanPage() {
         return text.trim().toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-");
       };
 
-      // Pastikan Nama selalu terisi sempurna baik tepat waktu maupun terlambat
       const finalNama = userNama || localStorage.getItem("user_nama") || currentNim;
       const cleanNim = sanitize(currentNim);
       const cleanNama = sanitize(finalNama);
@@ -193,8 +207,9 @@ export default function PenugasanPage() {
       const cleanJudul = sanitize(targetTask?.title || activeTaskId);
       const fileExt = selectedFile.name.split('.').pop()?.toLowerCase() || 'pdf';
 
-      const formattedFileName = `${cleanNim}_${cleanNama}_${cleanKategori}_${cleanJudul}.${fileExt}`;
-      const filePath = `${activeTaskId}/${formattedFileName}`;
+      const timestampTag = Date.now();
+      const formattedFileName = `${cleanNim}_${cleanNama}_${cleanKategori}_${cleanJudul}_${timestampTag}.${fileExt}`;
+      const filePath = `${activeTaskId}/${cleanNim}_${cleanNama}_${cleanKategori}_${cleanJudul}.${fileExt}`;
 
       let isLate = false;
       if (targetTask?.deadline) {
@@ -204,6 +219,8 @@ export default function PenugasanPage() {
         }
       }
       const statusText = isLate ? "TERLAMBAT" : "TEPAT WAKTU";
+
+      await supabase.storage.from('task-files').remove([filePath]);
 
       const { error: uploadError } = await supabase.storage
         .from('task-files')
@@ -222,8 +239,7 @@ export default function PenugasanPage() {
         .from('task-files')
         .getPublicUrl(filePath);
 
-      // URL download dengan parameter nama file terformat
-      const downloadPublicUrl = `${urlData.publicUrl}?download=${encodeURIComponent(formattedFileName)}`;
+      const downloadPublicUrl = `${urlData.publicUrl}?v=${timestampTag}&download=${encodeURIComponent(formattedFileName)}`;
       const submittedAt = now.toISOString();
 
       const { error: dbError } = await supabase
@@ -260,9 +276,9 @@ export default function PenugasanPage() {
       setSelectedFile(null);
 
       if (isLate) {
-        triggerToast("BERKAS DITERIMA (TERLAMBAT)", "Tugas berhasil diunggah namun melewati deadline!", true);
+        triggerToast("BERKAS DIPERBARUI (TERLAMBAT)", "Tugas berhasil diunggah ulang namun melewati deadline!", true);
       } else {
-        triggerToast("BERKAS DITERIMA", "Tugas berhasil diunggah tepat waktu!", false);
+        triggerToast("BERKAS DIPERBARUI", "Tugas berhasil diperbarui dan dikirim tepat waktu!", false);
       }
 
     } catch (error: any) {
@@ -327,6 +343,29 @@ export default function PenugasanPage() {
     } finally {
       setIsUploading(false);
     }
+  };
+
+  const renderContentWithLinks = (text: string) => {
+    if (!text) return null;
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+
+    return parts.map((part, index) => {
+      if (part.match(urlRegex)) {
+        return (
+          <a
+            key={index}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "#00FF88", textDecoration: "underline", wordBreak: "break-all" }}
+          >
+            {part}
+          </a>
+        );
+      }
+      return part;
+    });
   };
 
   const getTaskSubmissionStatus = (task: any) => {
@@ -481,7 +520,7 @@ export default function PenugasanPage() {
                     lineHeight: "1.5"
                   }}
                 >
-                  {rule}
+                  {renderContentWithLinks(rule)}
                 </p>
               </div>
             ))}
@@ -588,6 +627,34 @@ export default function PenugasanPage() {
               ANGKATAN
             </button>
 
+            {/* WIDGET POIN & STATUS KELULUSAN TRANSPARAN */}
+            {userRole !== "admin" && userRole !== "panitia" && (
+              <div style={{ marginTop: "20px", background: "rgba(255, 255, 255, 0.03)", border: "1px solid rgba(255, 255, 255, 0.1)", borderRadius: "12px", padding: "14px", textAlign: "left" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+                  <span style={{ fontSize: "11px", color: "rgba(250, 250, 250, 0.6)", fontWeight: 700, textTransform: "uppercase" }}>Akumulasi Poin</span>
+                  <Award size={16} style={{ color: "#00FF88" }} />
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "6px", marginBottom: "10px" }}>
+                  <span style={{ fontSize: "22px", fontWeight: 800, color: "#FAFAFA" }}>{userPoints}</span>
+                  <span style={{ fontSize: "11px", color: "rgba(250, 250, 250, 0.5)" }}>/ 300 Target</span>
+                </div>
+
+                {/* Indikator Status Kelulusan (Baru Muncul Menjelang Akhir Day 4 / Sesuai Trigger Panitia) */}
+                <div style={{ borderTop: "1px solid rgba(255, 255, 255, 0.1)", paddingTop: "10px", marginTop: "6px" }}>
+                  <span style={{ fontSize: "10px", color: "rgba(250, 250, 250, 0.5)", display: "block", marginBottom: "4px" }}>Status Kelulusan Akhir:</span>
+                  {isGraduatedStatus ? (
+                    <div style={{ background: "rgba(0, 255, 136, 0.12)", border: "1px solid #00FF88", color: "#00FF88", padding: "6px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: 800, display: "flex", alignItems: "center", gap: "6px" }}>
+                      <CheckCircle size={14} /> LULUS & DIKUKUHKAN
+                    </div>
+                  ) : (
+                    <div style={{ background: "rgba(255, 255, 255, 0.05)", border: "1px solid rgba(255, 255, 255, 0.15)", color: "rgba(250, 250, 250, 0.7)", padding: "6px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: 700 }}>
+                      ⏳ Menunggu Evaluasi Akhir
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {(userRole === "panitia" || userRole === "admin") && (
               <a 
                 href={userRole === "admin" ? "/admin" : "/panitia"} 
@@ -648,7 +715,7 @@ export default function PenugasanPage() {
                     </div>
                     <div className="detail-divider" style={{ margin: "12px 0", borderTop: "1px solid rgba(255, 255, 255, 0.1)" }} />
                     <div style={{ color: "rgba(250, 250, 250, 0.85)", fontSize: "13.5px", lineHeight: 1.6, whiteSpace: "pre-line", textAlign: "left" }}>
-                      <p style={{ margin: 0 }}>{ann.content}</p>
+                      <p style={{ margin: 0 }}>{renderContentWithLinks(ann.content)}</p>
                     </div>
                   </div>
                 ))
@@ -737,7 +804,18 @@ export default function PenugasanPage() {
             </div>
             <p className="modal-desc" style={{ marginBottom: "20px" }}>Silakan pilih berkas tugas Anda.</p>
 
-            <label htmlFor="fileInput" className="dropzone-area" style={{ display: "block" }}>
+            <label 
+              htmlFor="fileInput" 
+              className="dropzone-area" 
+              style={{ display: "block", cursor: "pointer" }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                  setSelectedFile(e.dataTransfer.files[0]);
+                }
+              }}
+            >
               <div className="dropzone-info">
                 <UploadCloud style={{ width: "28px", height: "28px", color: "#1B22A7", marginBottom: "8px" }} />
                 <p className="dropzone-text">Tarik & Lepaskan atau <span style={{ color: "#FAFAFA", fontWeight: 700 }}>Pilih Berkas</span></p>

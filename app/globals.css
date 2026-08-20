@@ -410,7 +410,7 @@ a.btn-outline:active,
   padding: 24px 18px !important;
   height: fit-content !important;
   position: sticky;
-  top: 110px;
+  top: 120px;
   box-shadow: 0 0 30px rgba(27, 34, 167, 0.15) !important;
   display: block !important;
   z-index: 5 !important;

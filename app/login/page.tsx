@@ -57,7 +57,7 @@ export default function LoginPage() {
 
   return (
     <div className="auth-page">
-      {/* 🟢 ELEMEN LAMPU SOROT */}
+      {/* ELEMEN LAMPU SOROT */}
       <div className="spotlight-overlay">
         <div className="spotlight-1"></div>
         <div className="spotlight-2"></div>
@@ -86,6 +86,7 @@ export default function LoginPage() {
             />
           </div>
 
+          {/* INPUT PASSWORD DENGAN ICON MATA TANPA ANIMASI POP-UP */}
           <div className="input-group">
             <label htmlFor="password">PASSWORD</label>
             <div style={{ position: "relative", width: "100%", display: "flex", alignItems: "center" }}>
@@ -100,6 +101,7 @@ export default function LoginPage() {
               />
               <button
                 type="button"
+                className="btn-eye-toggle"
                 onClick={() => setShowPassword(!showPassword)}
                 style={{
                   position: "absolute",
@@ -112,7 +114,10 @@ export default function LoginPage() {
                   alignItems: "center",
                   justifyContent: "center",
                   padding: 0,
-                  zIndex: 10
+                  zIndex: 10,
+                  transform: "none !important",
+                  boxShadow: "none !important",
+                  transition: "none !important"
                 }}
                 aria-label="Toggle password visibility"
               >
