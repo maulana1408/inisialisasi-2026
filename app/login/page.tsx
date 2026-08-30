@@ -38,7 +38,7 @@ export default function LoginPage() {
 
       // 3. Cek apakah status akun sudah aktif
       if (!user.is_active) {
-        throw new Error("Akun Anda belum diaktifkan. Silakan periksa email verifikasi Anda atau lakukan aktivasi.");
+        throw new Error("Akun Anda belum diaktifkan. Silakan periksa email verifikasi Anda atau lakukan registrasi.");
       }
 
       // 4. Simpan session di LocalStorage dengan penanganan nilai NULL
@@ -141,7 +141,7 @@ export default function LoginPage() {
         </form>
 
         <div className="auth-footer-section" style={{ marginTop: "15px" }}>
-          <a href="/aktivasi" className="btn-auth-secondary">Belum Aktifkan Akun? Aktivasi Sekarang</a>
+          <a href="/registrasi" className="btn-auth-secondary">Belum Registrasi Akun? Registrasi Sekarang</a>
           
           <a 
             href="/" 

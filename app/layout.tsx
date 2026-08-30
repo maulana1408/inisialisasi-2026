@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Outfit } from "next/font/google";
 import "./globals.css";
-import DynamicFavicon from "@/components/DynamicFavicon";
 
 const outfit = Outfit({
   subsets: ["latin"],
@@ -12,6 +11,12 @@ const outfit = Outfit({
 export const metadata: Metadata = {
   title: "INISIALISASI 2026",
   description: "Portal Resmi Inisialisasi D4 Teknik Informatika Universitas Airlangga",
+  icons: {
+    icon: [
+      { url: "/favicon-dark.ico", media: "(prefers-color-scheme: light)" },
+      { url: "/favicon-light.ico", media: "(prefers-color-scheme: dark)" },
+    ],
+  },
 };
 
 export default function RootLayout({
@@ -31,7 +36,6 @@ export default function RootLayout({
         />
       </head>
       <body>
-        <DynamicFavicon />
         {children}
       </body>
     </html>

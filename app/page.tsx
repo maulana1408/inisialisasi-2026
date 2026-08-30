@@ -193,7 +193,7 @@ export default function Home() {
                   <div className="point-left"><span className="num-bullet">1</span><p>Peserta dilarang membawa senjata tajam dan senjata api.</p></div>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">2</span><p>Peserta dilarang membawa rokok, miras, vape beserta liquid-nya, serta obat-obatan terlarang lainnya.</p></div>
+                  <div className="point-left"><span className="num-bullet">2</span><p>Peserta dilarang membawa rokok, miras, vape beserta liquidnya, serta obat-obatan terlarang lainnya.</p></div>
                 </div>
                 <div className="point-row">
                   <div className="point-left"><span className="num-bullet">3</span><p>Peserta dilarang memakai aksesori dan makeup yang berlebihan.</p></div>
@@ -213,28 +213,28 @@ export default function Home() {
                   <h3>Kewajiban Peserta</h3>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">1</span><p>Peserta wajib memperhatikan dan mencatat seluruh materi yang disampaikan di booklet yang sudah ditentukan.</p></div>
+                  <div className="point-left"><span className="num-bullet">1</span><p>Peserta wajib untuk memperhatikan dan mencatat seluruh materi yang disampaikan selama kegiatan berlangsung di booklet yang sudah ditentukan.</p></div>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">2</span><p>Peserta wajib menjaga kondusifitas selama materi berlangsung serta tidak diperkenankan membahas hal di luar topik. Jika ingin bertanya, wajib meminta izin kepada pemateri dengan angkat tangan terlebih dahulu dan setelah diizinkan diperbolehkan bertanya.</p></div>
+                  <div className="point-left"><span className="num-bullet">2</span><p>Peserta wajib menjaga kekondusifan selama materi berlangsung saat pemateri menyampaikan materi. Tidak diperkenankan untuk membahas hal yang diluar topik. Saat ingin bertanya, peserta diwajibkan meminta izin kepada pemateri dengan angkat tangan terlebih dahulu dan setelah diizinkan peserta diperbolehkan bertanya.</p></div>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">3</span><p>Peserta diperbolehkan ke kamar mandi di sela-sela kegiatan dengan meminta izin terlebih dahulu kepada panitia/kakak pendamping.</p></div>
+                  <div className="point-left"><span className="num-bullet">3</span><p>Peserta diperbolehkan ke kamar mandi di sela-sela rangkaian kegiatan dengan meminta izin terlebih dahulu kepada panitia/kakak pendamping, apabila sudah diizinkan peserta diperbolehkan ke kamar mandi.</p></div>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">4</span><p>Peserta diwajibkan untuk menyelesaikan penugasan sesuai waktu yang ditentukan. Keterlambatan akan dikenakan pengurangan poin.</p></div>
+                  <div className="point-left"><span className="num-bullet">4</span><p>Peserta wajib menyelesaikan penugasan yang telah diberikan sesuai waktu yang telah ditentukan. Apabila terlambat/tidak menyelesaikan penugasan, maka akan dikenakan pengurangan poin.</p></div>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">5</span><p>Mahasiswa baru yang berhalangan dan tidak bisa mengikuti rangkaian kegiatan diharapkan izin 3-4 hari sebelum acara kepada kakak pendamping dengan menyertakan alasannya.</p></div>
+                  <div className="point-left"><span className="num-bullet">5</span><p>Untuk mahasiswa baru yang berhalangan dan tidak bisa mengikuti rangkaian kegiatan diharapkan izin 3-4 hari sebelum acara dimulai kepada kakak pendamping dengan menyertakan alasannya.</p></div>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">6</span><p>Untuk mahasiswa baru yang sakit pada saat sebelum/saat acara berlangsung, dihimbau segera izin kepada kakak pendamping. Jika tidak menghubungi kakak pendamping, maka akan dianggap tidak hadir.</p></div>
+                  <div className="point-left"><span className="num-bullet">6</span><p>Untuk mahasiswa baru yang sakit pada saat sebelum/saat acara Inisialisasi 2026 berlangsung, dihimbau untuk segera izin kepada kakak pendamping. Apabila tidak menghubungi kakak pendamping, maka akan dianggap tidak hadir.</p></div>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">7</span><p>Peserta wajib menjaga barang pribadinya. Kehilangan barang bukan tanggung jawab panitia.</p></div>
+                  <div className="point-left"><span className="num-bullet">7</span><p>Peserta wajib menjaga barang pribadinya, jika terdapat kehilangan bukan termasuk tanggung jawab panitia.</p></div>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">8</span><p>Peserta dianjurkan membawa obat-obatan pribadi apabila membutuhkan.</p></div>
+                  <div className="point-left"><span className="num-bullet">8</span><p>Peserta dianjurkan membawa obat-obatan pribadi (apabila membutuhkan).</p></div>
                 </div>
               </div>
             </div>
@@ -299,7 +299,7 @@ export default function Home() {
                 </div>
                 <div className="point-row">
                   <div className="point-left">
-                    <p>Mahasiswa baru diwajibkan mengumpulkan minimal <strong>3000 poin</strong> agar dapat lulus dan dikukuhkan.</p>
+                    <p>Mahasiswa baru diwajibkan mengumpulkan minimal <strong>300 poin</strong> agar dapat lulus dan dikukuhkan.</p>
                   </div>
                 </div>
               </div>
@@ -405,12 +405,12 @@ export default function Home() {
             </div>
             
             <p className="modal-desc">
-              Anda harus melakukan <strong>Log In</strong> atau <strong>Aktivasi Akun</strong> terlebih dahulu untuk melihat berkas penugasan.
+              Anda harus melakukan <strong>Log In</strong> atau <strong>Registrasi Akun</strong> terlebih dahulu untuk melihat berkas penugasan.
             </p>
 
             <div className="modal-buttons">
               <a href="/login" className="btn-modal-primary">
-                Log In / Aktivasi
+                Log In / Registrasi
               </a>
               <button type="button" className="btn-modal-close" onClick={closeAll}>
                 KEMBALI

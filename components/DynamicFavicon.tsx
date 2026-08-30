@@ -4,30 +4,33 @@ import { useEffect } from "react";
 
 export default function DynamicFavicon() {
   useEffect(() => {
-    // Fungsi untuk mendeteksi mode tema perangkat/browser
-    const darkModeMediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-
+    // Fungsi untuk mengubah favicon berdasarkan tema browser
     const updateFavicon = (e: MediaQueryListEvent | MediaQueryList) => {
-      const link: HTMLLinkElement = document.querySelector("link[rel*='icon']") || document.createElement("link");
-      link.type = "image/x-icon";
-      link.rel = "shortcut icon";
-      
-      // Jika dark mode aktif, pakai favicon terang (putih), jika tidak pakai favicon gelap (biru)
-      link.href = e.matches ? "/favicon-light.ico" : "/favicon-dark.ico";
-      
-      document.getElementsByTagName("head")[0].appendChild(link);
+      const isDark = e.matches;
+      // Ganti path sesuai nama file icon terang/gelap Anda di folder public/
+      const faviconPath = isDark ? "/favicon-light.ico" : "/favicon-dark.ico";
+
+      let link: HTMLLinkElement | null = document.querySelector("link[rel*='icon']");
+      if (!link) {
+        link = document.createElement("link");
+        link.rel = "icon";
+        document.head.appendChild(link);
+      }
+      link.href = faviconPath;
     };
 
-    // Jalankan saat pertama kali dimuat
-    updateFavicon(darkModeMediaQuery);
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    
+    // Set awal saat komponen dimuat
+    updateFavicon(mediaQuery);
 
-    // Pantau jika user mengubah tema browser secara real-time
-    darkModeMediaQuery.addEventListener("change", updateFavicon);
+    // Event listener jika pengguna mengubah tema browser secara real-time
+    mediaQuery.addEventListener("change", updateFavicon);
 
     return () => {
-      darkModeMediaQuery.removeEventListener("change", updateFavicon);
+      mediaQuery.removeEventListener("change", updateFavicon);
     };
-  }, []);
+  }, [],);
 
   return null;
 }

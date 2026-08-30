@@ -198,9 +198,9 @@ export default function PanitiaDashboard() {
         <aside className="task-sidebar">
           <div style={{ marginBottom: "15px" }}>
             {isLoaded && userNama && (
-              <div style={{ marginBottom: "10px", background: "rgba(0, 255, 136, 0.1)", border: "1px solid #00FF88", padding: "6px 12px", borderRadius: "8px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                <User size={13} style={{ color: "#00FF88" }} />
-                <span style={{ fontSize: "11px", color: "#00FF88", fontWeight: 700 }}>{userNama}</span>
+              <div style={{ marginBottom: "10px", background: "transparent", border: "2px solid #1B22A7", padding: "6px 12px", borderRadius: "20px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                <User size={13} style={{ color: "#fafafa" }} />
+                <span style={{ fontSize: "11px", color: "#fafafa", fontWeight: 700 }}>{userNama}</span>
               </div>
             )}
 

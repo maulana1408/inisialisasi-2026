@@ -15,22 +15,31 @@ import {
   Pencil, 
   X, 
   CheckCircle2, 
-  AlertCircle 
+  AlertCircle,
+  UserCheck,
+  GraduationCap 
 } from "lucide-react";
 
-export default function AdminDashboard() {
+export default function AdminPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"rekap" | "tugas" | "pengumuman" | "manage">("rekap");
+  const [activeTab, setActiveTab] = useState<"rekap" | "presensi" | "evaluasi" | "tugas" | "pengumuman" | "manage">("rekap");
 
   const [submissions, setSubmissions] = useState<any[]>([]);
   const [tasksMap, setTasksMap] = useState<{ [key: string]: any }>({});
   const [tasks, setTasks] = useState<any[]>([]);
   const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [students, setStudents] = useState<any[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<{ [key: string]: boolean }>({});
 
-  // 🟢 State Filter Rekap (Kategori, Status, dan Judul Tugas)
   const [filterCategory, setFilterCategory] = useState<"all" | "individu" | "kelompok" | "angkatan">("all");
   const [filterLateStatus, setFilterLateStatus] = useState<"all" | "ontime" | "late">("all");
   const [filterTaskTitle, setFilterTaskTitle] = useState<string>("all");
+  const [filterAttendanceStatus, setFilterAttendanceStatus] = useState<"all" | "present" | "absent">("all");
+  const [filterEvalPoints, setFilterEvalPoints] = useState<"all" | "complete" | "incomplete">("all");
+
+  const [selectedSession, setSelectedSession] = useState<string>("pra-inisialisasi");
+  const [sessionPoints, setSessionPoints] = useState<number | "">("");
+  const [currentNim, setCurrentNim] = useState<string | null>(null);
 
   const [isEditAnnModalOpen, setIsEditAnnModalOpen] = useState(false);
   const [editAnnData, setEditAnnData] = useState<any>(null);
@@ -54,6 +63,8 @@ export default function AdminDashboard() {
   const [taskTitle, setTaskTitle] = useState("");
   const [taskRules, setTaskRules] = useState("");
   const [taskDeadline, setTaskDeadline] = useState("");
+  const [taskPoints, setTaskPoints] = useState<number | "">(""); 
+  
   const [annTitle, setAnnTitle] = useState("");
   const [annContent, setAnnContent] = useState("");
   const [loading, setLoading] = useState(false);
@@ -92,6 +103,7 @@ export default function AdminDashboard() {
     }
 
     if (savedNama) setUserNama(savedNama);
+    setCurrentNim(nim);
 
     async function verifyAdmin() {
       const { data } = await supabase.from("users").select("role, nama").eq("nim", nim).single();
@@ -115,6 +127,7 @@ export default function AdminDashboard() {
     const { data: taskData } = await supabase.from("tasks").select("*").order("created_at", { ascending: true });
     const { data: annData } = await supabase.from("announcements").select("*").order("created_at", { ascending: true });
     const { data: subData } = await supabase.from("submissions").select("*, users(nama, nim)").order("submitted_at", { ascending: false });
+    const { data: userData } = await supabase.from("users").select("nim, nama, role, total_points, is_graduated, graduation_status").neq("role", "admin").order("total_points", { ascending: false });
 
     if (taskData) {
       setTasks(taskData);
@@ -124,6 +137,121 @@ export default function AdminDashboard() {
     }
     if (annData) setAnnouncements(annData);
     if (subData) setSubmissions(subData);
+    if (userData) setStudents(userData);
+  };
+
+  useEffect(() => {
+    if (!currentNim) return;
+    async function loadAttendance() {
+      const { data } = await supabase
+        .from("attendance")
+        .select("user_nim, is_present, awarded_points")
+        .eq("session_name", selectedSession);
+
+      if (data && data.length > 0) {
+        const attMap: { [key: string]: boolean } = {};
+        data.forEach((att) => {
+          attMap[att.user_nim] = att.is_present;
+        });
+        setAttendanceRecords(attMap);
+        if (data[0].awarded_points !== undefined && data[0].awarded_points !== null) {
+          setSessionPoints(data[0].awarded_points);
+        }
+      } else {
+        setAttendanceRecords({});
+      }
+    }
+    loadAttendance();
+  }, [selectedSession, currentNim]);
+
+  const handleAttendanceToggle = async (nim: string, currentStatus: boolean) => {
+    const nextStatus = !currentStatus;
+    const currentPoints = Number(sessionPoints) || 0;
+    
+    setAttendanceRecords((prev) => ({ ...prev, [nim]: nextStatus }));
+
+    const { error } = await supabase
+      .from("attendance")
+      .upsert(
+        {
+          user_nim: nim,
+          session_name: selectedSession,
+          is_present: nextStatus,
+          awarded_points: nextStatus ? currentPoints : 0
+        },
+        { onConflict: 'user_nim,session_name' }
+      );
+
+    if (error) {
+      triggerToast("GAGAL SIMPAN", error.message, true);
+    } else {
+      const { data: subPointsData } = await supabase
+        .from("submissions")
+        .select("awarded_points")
+        .eq("user_nim", nim)
+        .eq("is_validated", true);
+
+      const { data: attPointsData } = await supabase
+        .from("attendance")
+        .select("awarded_points")
+        .eq("user_nim", nim)
+        .eq("is_present", true);
+
+      const totalTaskP = subPointsData?.reduce((acc, curr) => acc + (curr.awarded_points || 0), 0) || 0;
+      const totalAttP = attPointsData?.reduce((acc, curr) => acc + (curr.awarded_points || 0), 0) || 0;
+      const grandTotal = totalTaskP + totalAttP;
+
+      await supabase
+        .from("users")
+        .update({ total_points: grandTotal })
+        .eq("nim", nim);
+
+      loadAllData();
+      triggerToast(
+        nextStatus ? "HADIR DICATAT" : "KEHADIRAN DIHAPUS",
+        nextStatus ? `Memberikan ${currentPoints} poin presensi untuk ${nim}` : `Kehadiran ${nim} dibatalkan`,
+        false
+      );
+    }
+  };
+
+  const handleGraduationToggle = async (nim: string, currentGraduatedState: boolean) => {
+    const nextState = !currentGraduatedState;
+    const statusText = nextState ? "LULUS & DIKUKUHKAN" : "TIDAK LULUS";
+
+    const { error } = await supabase
+      .from("users")
+      .update({
+        is_graduated: nextState,
+        graduation_status: statusText
+      })
+      .eq("nim", nim);
+
+    if (error) {
+      triggerToast("GAGAL EVALUASI", error.message, true);
+    } else {
+      triggerToast(
+        nextState ? "MAHASISWA LULUS" : "STATUS DIBATALKAN",
+        `Mahasiswa dengan NIM ${nim} dinyatakan ${statusText}!`,
+        false
+      );
+      loadAllData();
+    }
+  };
+
+  const handleSaveSessionPoints = async () => {
+    const pointsVal = Number(sessionPoints) || 0;
+    const { error } = await supabase
+      .from("attendance")
+      .update({ awarded_points: pointsVal })
+      .eq("session_name", selectedSession)
+      .eq("is_present", true);
+
+    if (error) {
+      triggerToast("GAGAL", error.message, true);
+    } else {
+      triggerToast("POIN DIPERBARUI", `Berhasil mengatur ${pointsVal} poin untuk sesi ${selectedSession}!`, false);
+    }
   };
 
   const handleAddTask = async (e: React.FormEvent) => {
@@ -137,6 +265,7 @@ export default function AdminDashboard() {
       title: taskTitle,
       rules: rulesArray,
       deadline: new Date(taskDeadline).toISOString(),
+      points: Number(taskPoints) || 0,
       is_active: true,
     });
 
@@ -145,7 +274,7 @@ export default function AdminDashboard() {
       triggerToast("GAGAL TAMBAH TUGAS", error.message, true);
     } else {
       triggerToast("BERHASIL DITERBITKAN", "Tugas baru berhasil ditambahkan!", false);
-      setTaskId(""); setTaskTitle(""); setTaskRules(""); setTaskDeadline("");
+      setTaskId(""); setTaskTitle(""); setTaskRules(""); setTaskDeadline(""); setTaskPoints("");
       loadAllData();
     }
   };
@@ -211,6 +340,7 @@ export default function AdminDashboard() {
           category: editTaskData.category,
           rules: rulesArray,
           deadline: new Date(editTaskData.deadline).toISOString(),
+          points: Number(editTaskData.points) || 0,
         })
         .eq("id", editTaskData.id);
 
@@ -276,9 +406,54 @@ export default function AdminDashboard() {
     });
   };
 
+  const handleValidationToggle = async (submissionId: string, currentValidatedState: boolean, pointsToAward: number, targetNim: string) => {
+    const nextState = !currentValidatedState;
+    const awardedPoints = nextState ? pointsToAward : 0;
+
+    const { error } = await supabase
+      .from("submissions")
+      .update({ 
+        is_validated: nextState,
+        awarded_points: awardedPoints 
+      })
+      .eq("id", submissionId);
+
+    if (error) {
+      triggerToast("GAGAL VALIDASI", error.message, true);
+    } else {
+      const { data: subPointsData } = await supabase
+        .from("submissions")
+        .select("awarded_points")
+        .eq("user_nim", targetNim)
+        .eq("is_validated", true);
+
+      const { data: attPointsData } = await supabase
+        .from("attendance")
+        .select("awarded_points")
+        .eq("user_nim", targetNim)
+        .eq("is_present", true);
+
+      const totalTaskP = subPointsData?.reduce((acc, curr) => acc + (curr.awarded_points || 0), 0) || 0;
+      const totalAttP = attPointsData?.reduce((acc, curr) => acc + (curr.awarded_points || 0), 0) || 0;
+      const grandTotal = totalTaskP + totalAttP;
+
+      await supabase
+        .from("users")
+        .update({ total_points: grandTotal })
+        .eq("nim", targetNim);
+
+      triggerToast(
+        nextState ? "POIN DIKIRIM" : "VALIDASI DIBATALKAN", 
+        nextState ? `Berhasil memberikan ${awardedPoints} poin ke ${targetNim}!` : `Poin untuk ${targetNim} ditarik kembali.`, 
+        false
+      );
+      loadAllData();
+    }
+  };
+
   const getCleanViewUrl = (rawUrl: string) => {
     if (!rawUrl) return "#";
-    return rawUrl.split("?download=")[0];
+    return rawUrl.includes("?") ? rawUrl.replace("download=", "view=") : `${rawUrl}?view=true`;
   };
 
   const processedSubmissions = submissions.map((sub) => {
@@ -286,6 +461,7 @@ export default function AdminDashboard() {
     let isLate = sub.status ? sub.status.toUpperCase() === "TERLAMBAT" : false;
     let category = task?.category || "individu";
     let taskTitleDisplay = task?.title || sub.tugas_id || sub.task_id;
+    let taskPointsValue = task?.points || 0;
 
     if (!sub.status && task && task.deadline) {
       isLate = new Date(sub.submitted_at) > new Date(task.deadline);
@@ -296,12 +472,12 @@ export default function AdminDashboard() {
       isLate, 
       category,
       task_title: taskTitleDisplay,
+      task_points: taskPointsValue,
       displayNama: sub.nama || sub.users?.nama || "-",
       viewUrl: getCleanViewUrl(sub.file_url)
     };
   });
 
-  // 🟢 Filter Berdasarkan Kategori, Status, dan Judul Tugas
   const filteredSubmissions = processedSubmissions.filter((sub) => {
     let matchCat = true;
     if (filterCategory !== "all") {
@@ -320,10 +496,28 @@ export default function AdminDashboard() {
     return matchCat && matchStatus && matchTitle;
   });
 
+  const filteredStudents = students.filter((stu) => {
+    const isPresent = !!attendanceRecords[stu.nim];
+    if (filterAttendanceStatus === "present") return isPresent;
+    if (filterAttendanceStatus === "absent") return !isPresent;
+    return true;
+  });
+
+  const countCompleteEval = students.filter((s) => (s.total_points || 0) >= 300).length;
+  const countIncompleteEval = students.length - countCompleteEval;
+
+  const filteredEvaluationStudents = students.filter((stu) => {
+    const points = stu.total_points || 0;
+    if (filterEvalPoints === "complete") return points >= 300;
+    if (filterEvalPoints === "incomplete") return points < 300;
+    return true;
+  });
+
   const countOntime = filteredSubmissions.filter((s) => !s.isLate).length;
   const countLate = filteredSubmissions.filter((s) => s.isLate).length;
+  const countPresent = students.filter((s) => attendanceRecords[s.nim]).length;
+  const countAbsent = students.length - countPresent;
 
-  // Daftar Judul Tugas Unik untuk Opsi Dropdown Filter
   const uniqueTaskTitles = Array.from(
     new Set(tasks.map((t) => t.title).filter(Boolean))
   );
@@ -332,24 +526,51 @@ export default function AdminDashboard() {
     <>
       <Navbar />
       <div className="dashboard-container" style={{ maxWidth: "1200px", width: "100%", margin: "0 auto", padding: "120px 24px 60px 24px", boxSizing: "border-box" }}>
-        <aside className="task-sidebar">
-          <div style={{ marginBottom: "15px" }}>
-            {isLoaded && userNama && (
-              <div style={{ marginBottom: "10px", background: "rgba(255, 51, 51, 0.12)", border: "1px solid #FF3333", padding: "6px 12px", borderRadius: "8px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+        {/* 🟢 SIDEBAR ADMIN */}
+        <aside 
+          className="task-sidebar" 
+          style={{ 
+            display: "flex", 
+            flexDirection: "column", 
+            position: "sticky", 
+            top: "120px", 
+            height: "calc(100vh - 140px)", 
+            maxHeight: "820px",
+            boxSizing: "border-box",
+            padding: "24px" 
+          }}
+        >
+          <div style={{ flexShrink: 0 }}>
+            <div style={{ marginBottom: "5px" }}>
+              <div style={{ 
+                minHeight: "38px",
+                marginBottom: "10px", 
+                background: "transparent", 
+                border: "1px solid #FF3333", 
+                padding: "6px 12px", 
+                borderRadius: "20px", 
+                display: "inline-flex", 
+                alignItems: "center", 
+                gap: "6px" 
+              }}>
                 <ShieldAlert size={13} style={{ color: "#FF3333" }} />
-                <span style={{ fontSize: "11px", color: "#FF3333", fontWeight: 700 }}>{userNama}</span>
+                <span style={{ fontSize: "11px", color: "#FF3333", fontWeight: 700, textTransform: "uppercase" }}>
+                  {userNama || "ADMIN UTAMA"}
+                </span>
               </div>
-            )}
 
-            <h2 className="sidebar-header-title">MENU UTAMA</h2>
-          </div>
+              <h2 className="sidebar-header-title">MENU UTAMA</h2>
+            </div>
 
-          <div className="sidebar-menu">
-            <button type="button" className={`sidebar-btn ${activeTab === "rekap" ? "active" : ""}`} onClick={() => setActiveTab("rekap")}>📊 REKAP PENGUMPULAN</button>
-            <button type="button" className={`sidebar-btn ${activeTab === "tugas" ? "active" : ""}`} onClick={() => setActiveTab("tugas")}>➕ TAMBAH TUGAS</button>
-            <button type="button" className={`sidebar-btn ${activeTab === "pengumuman" ? "active" : ""}`} onClick={() => setActiveTab("pengumuman")}>📢 BUAT PENGUMUMAN</button>
-            <button type="button" className={`sidebar-btn ${activeTab === "manage" ? "active" : ""}`} onClick={() => setActiveTab("manage")} style={{ color: "#FF3333" }}>⚙️ KELOLA / ARSIP DATA</button>
-            <a href="/penugasan" className="sidebar-btn" style={{ marginTop: "15px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)", color: "#FAFAFA", textAlign: "center", textDecoration: "none", display: "block" }}>👁️ TAMPILAN MAHASISWA</a>
+            <div className="sidebar-menu">
+              <button type="button" className={`sidebar-btn ${activeTab === "rekap" ? "active" : ""}`} onClick={() => setActiveTab("rekap")}>📊 REKAP PENGUMPULAN</button>
+              <button type="button" className={`sidebar-btn ${activeTab === "presensi" ? "active" : ""}`} onClick={() => setActiveTab("presensi")}>✅ INPUT PRESENSI</button>
+              <button type="button" className={`sidebar-btn ${activeTab === "evaluasi" ? "active" : ""}`} onClick={() => setActiveTab("evaluasi")}>🎓 EVALUASI AKHIR</button>
+              <button type="button" className={`sidebar-btn ${activeTab === "tugas" ? "active" : ""}`} onClick={() => setActiveTab("tugas")}>➕ TAMBAH TUGAS</button>
+              <button type="button" className={`sidebar-btn ${activeTab === "pengumuman" ? "active" : ""}`} onClick={() => setActiveTab("pengumuman")}>📢 BUAT PENGUMUMAN</button>
+              <button type="button" className={`sidebar-btn ${activeTab === "manage" ? "active" : ""}`} onClick={() => setActiveTab("manage")} style={{ color: "#FF3333" }}>⚙️ KELOLA ARSIP DATA</button>
+              <a href="/penugasan" className="sidebar-btn" style={{ marginTop: "15px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)", color: "#FAFAFA", textAlign: "center", textDecoration: "none", display: "block" }}>👁️ TAMPILAN MAHASISWA</a>
+            </div>
           </div>
         </aside>
 
@@ -375,11 +596,9 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                {/* 🟢 Tiga Dropdown Filter: Kategori, Status, dan Judul Tugas */}
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", width: "100%", flexWrap: "wrap" }}>
                   <Filter size={14} color="#888" style={{ flexShrink: 0 }} />
                   
-                  {/* Filter Jenis Tugas */}
                   <select 
                     value={filterCategory} 
                     onChange={(e: any) => setFilterCategory(e.target.value)} 
@@ -391,7 +610,6 @@ export default function AdminDashboard() {
                     <option value="angkatan">Tugas Angkatan</option>
                   </select>
 
-                  {/* Filter Judul Tugas */}
                   <select 
                     value={filterTaskTitle} 
                     onChange={(e: any) => setFilterTaskTitle(e.target.value)} 
@@ -405,7 +623,6 @@ export default function AdminDashboard() {
                     ))}
                   </select>
 
-                  {/* Filter Status Pengumpulan */}
                   <select 
                     value={filterLateStatus} 
                     onChange={(e: any) => setFilterLateStatus(e.target.value)} 
@@ -423,13 +640,13 @@ export default function AdminDashboard() {
               <div className="desktop-rekap-table" style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", color: "#FAFAFA", borderCollapse: "collapse", fontSize: "13px" }}>
                   <thead>
-                    <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#888", textAlign: "left" }}>
+                    <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#fafafa", textAlign: "left" }}>
                       <th style={{ padding: "10px" }}>NIM</th>
                       <th style={{ padding: "10px" }}>NAMA</th>
                       <th style={{ padding: "10px" }}>JUDUL TUGAS</th>
                       <th style={{ padding: "10px" }}>WAKTU</th>
                       <th style={{ padding: "10px" }}>STATUS</th>
-                      <th style={{ padding: "10px" }}>BERKAS</th>
+                      <th style={{ padding: "10px" }}>VALIDASI PENUGASAN</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -450,9 +667,19 @@ export default function AdminDashboard() {
                             )}
                           </td>
                           <td style={{ padding: "10px" }}>
-                            <a href={sub.viewUrl} target="_blank" rel="noreferrer" style={{ color: "#00FF88", display: "inline-flex", alignItems: "center", gap: "5px", textDecoration: "none", fontWeight: 600 }}>
-                              <Eye size={14} /> View Berkas
-                            </a>
+                            <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                              <a href={sub.viewUrl} target="_blank" rel="noreferrer" style={{ color: "#00FF88", display: "inline-flex", alignItems: "center", gap: "5px", textDecoration: "none", fontWeight: 600 }}>
+                                <Eye size={14} /> View Berkas
+                              </a>
+                              <label style={{ display: "inline-flex", alignItems: "center", gap: "5px", cursor: "pointer", fontSize: "11px", color: sub.is_validated ? "#00FF88" : "#aaa", fontWeight: 600 }}>
+                                <input 
+                                  type="checkbox" 
+                                  checked={!!sub.is_validated} 
+                                  onChange={() => handleValidationToggle(sub.id, !!sub.is_validated, sub.task_points, sub.user_nim)}
+                                  style={{ width: "16px", height: "16px", accentColor: "#00FF88", cursor: "pointer" }} 
+                                />
+                              </label>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -460,81 +687,211 @@ export default function AdminDashboard() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
 
-              <div className="mobile-rekap-cards" style={{ display: "none", flexDirection: "column", gap: "10px" }}>
-                {filteredSubmissions.length === 0 ? (
-                  <p style={{ textAlign: "center", padding: "20px", color: "#666", fontSize: "13px", margin: 0 }}>
-                    Tidak ada data yang sesuai filter.
-                  </p>
-                ) : (
-                  filteredSubmissions.map((sub, i) => (
-                    <div 
-                      key={i} 
-                      style={{ 
-                        background: "transparent", 
-                        borderBottom: "1px solid rgba(255, 255, 255, 0.08)", 
-                        padding: "12px 4px", 
-                        display: "flex", 
-                        flexDirection: "column", 
-                        gap: "8px" 
-                      }}
+          {activeTab === "presensi" && (
+            <div className="clickable-task-card" style={{ cursor: "default", padding: "16px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "15px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <UserCheck color="#00FF88" size={20} style={{ flexShrink: 0 }} />
+                    <h3 style={{ color: "#FAFAFA", fontSize: "15px", margin: 0, fontWeight: 700 }}>
+                      INPUT PRESENSI
+                    </h3>
+                  </div>
+
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "rgba(0, 255, 136, 0.12)", border: "1px solid #00FF88", color: "#00FF88", whiteSpace: "nowrap" }}>
+                      Hadir: ({countPresent})
+                    </span>
+                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "rgba(255, 51, 51, 0.15)", border: "1px solid #FF3333", color: "#FF3333", whiteSpace: "nowrap" }}>
+                      Tidak Hadir: ({countAbsent})
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "flex-end", gap: "12px", width: "100%", flexWrap: "wrap", marginTop: "10px" }}>
+                  <div style={{ flex: 2, display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Pilih Sesi Kehadiran:</label>
+                    <select 
+                      value={selectedSession} 
+                      onChange={(e) => setSelectedSession(e.target.value)} 
+                      style={{ background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "10px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, outline: "none", width: "100%" }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontFamily: "monospace", fontWeight: "bold", fontSize: "13px", color: sub.isLate ? "#FF3333" : "#00FF88" }}>
-                          {sub.user_nim}
-                        </span>
+                      <option value="pra-inisialisasi">Pra-Inisialisasi</option>
+                      <option value="inisialisasi-day1">Inisialisasi Day 1</option>
+                      <option value="inisialisasi-day2">Inisialisasi Day 2</option>
+                      <option value="inisialisasi-day3">Inisialisasi Day 3</option>
+                      <option value="inisialisasi-day4">Inisialisasi Day 4</option>
+                      <option value="pengukuhan">Pengukuhan</option>
+                    </select>
+                  </div>
 
-                        {sub.isLate ? (
-                          <span style={{ background: "rgba(255,51,51,0.15)", border: "1px solid #FF3333", color: "#FF3333", padding: "2px 8px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap" }}>
-                            TERLAMBAT
-                          </span>
-                        ) : (
-                          <span style={{ background: "rgba(0,255,136,0.12)", border: "1px solid #00FF88", color: "#00FF88", padding: "2px 8px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap" }}>
-                            TEPAT WAKTU
-                          </span>
-                        )}
-                      </div>
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Poin Kehadiran Sesi Ini:</label>
+                    <input 
+                      type="number" 
+                      placeholder="Masukkan poin..."
+                      value={sessionPoints} 
+                      onChange={(e) => setSessionPoints(e.target.value === "" ? "" : Number(e.target.value))} 
+                      style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, width: "100%" }} 
+                    />
+                  </div>
 
-                      <div style={{ fontSize: "13px", color: "#FAFAFA", fontWeight: "600" }}>
-                        {sub.displayNama}
-                      </div>
+                  <div style={{ flexShrink: 0 }}>
+                    <button 
+                      type="button"
+                      onClick={handleSaveSessionPoints}
+                      style={{ background: "transparent", border: "2px solid #1B22A7", color: "#fafafa", padding: "10px 16px", borderRadius: "8px", fontSize: "12px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+                    >
+                      Simpan Poin Sesi
+                    </button>
+                  </div>
 
-                      <div style={{ fontSize: "11.5px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-                        <span style={{ color: "rgba(250, 250, 250, 0.7)" }}>
-                          Judul: <strong style={{ color: "#FAFAFA" }}>{sub.task_title}</strong>
-                        </span>
-                        <span style={{ color: sub.isLate ? "#FF3333" : "#aaa", fontSize: "11px" }}>
-                          {new Date(sub.submitted_at).toLocaleString("id-ID")}
-                        </span>
-                      </div>
+                  <div style={{ flex: 1.5, display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Filter Status:</label>
+                    <select 
+                      value={filterAttendanceStatus} 
+                      onChange={(e: any) => setFilterAttendanceStatus(e.target.value)} 
+                      style={{ background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "10px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, outline: "none", width: "100%" }}
+                    >
+                      <option value="all">Semua Mahasiswa ({students.length})</option>
+                      <option value="present">Hadir ({countPresent})</option>
+                      <option value="absent">Tidak Hadir ({countAbsent})</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
 
-                      <div style={{ marginTop: "2px", textAlign: "left" }}>
-                        <a 
-                          href={sub.viewUrl} 
-                          target="_blank" 
-                          rel="noreferrer" 
-                          style={{ 
-                            color: "#00FF88", 
-                            display: "inline-flex", 
-                            alignItems: "center", 
-                            gap: "6px", 
-                            textDecoration: "none", 
-                            fontSize: "12px",
-                            fontWeight: 600 
-                          }}
-                        >
-                          <Eye size={14} /> View Berkas
-                        </a>
-                      </div>
-                    </div>
-                  ))
-                )}
+              <div className="detail-divider" style={{ marginBottom: "15px" }} />
+
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", color: "#FAFAFA", borderCollapse: "collapse", fontSize: "13px" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#fafafa", textAlign: "left" }}>
+                      <th style={{ padding: "10px" }}>NIM</th>
+                      <th style={{ padding: "10px" }}>NAMA MAHASISWA</th>
+                      <th style={{ padding: "10px", textAlign: "center" }}>STATUS KEHADIRAN (CEKLIS)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredStudents.length === 0 ? (
+                      <tr><td colSpan={3} style={{ padding: "20px", textAlign: "center", color: "#666" }}>Tidak ada data mahasiswa yang sesuai filter.</td></tr>
+                    ) : (
+                      filteredStudents.map((stu, i) => {
+                        const isPresent = !!attendanceRecords[stu.nim];
+                        return (
+                          <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                            <td style={{ padding: "12px 10px", fontFamily: "monospace", fontWeight: "bold", color: "#00FF88" }}>{stu.nim}</td>
+                            <td style={{ padding: "12px 10px", color: "#FAFAFA", fontWeight: 600 }}>{stu.nama}</td>
+                            <td style={{ padding: "12px 10px", textAlign: "center" }}>
+                              <label style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                                <input 
+                                  type="checkbox" 
+                                  checked={isPresent} 
+                                  onChange={() => handleAttendanceToggle(stu.nim, isPresent)}
+                                  style={{ width: "18px", height: "18px", accentColor: "#00FF88", cursor: "pointer" }} 
+                                />
+                              </label>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "evaluasi" && (
+            <div className="clickable-task-card" style={{ cursor: "default", padding: "16px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "15px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <GraduationCap color="#00FF88" size={22} />
+                    <h3 style={{ color: "#FAFAFA", fontSize: "15px", margin: 0, fontWeight: 700 }}>
+                      EVALUASI AKHIR & PENENTUAN KELULUSAN MAHASISWA
+                    </h3>
+                  </div>
+
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "rgba(0, 255, 136, 0.12)", border: "1px solid #00FF88", color: "#00FF88", whiteSpace: "nowrap" }}>
+                      Memenuhi: ({countCompleteEval})
+                    </span>
+                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "rgba(255, 51, 51, 0.15)", border: "1px solid #FF3333", color: "#FF3333", whiteSpace: "nowrap" }}>
+                      Belum Memenuhi: ({countIncompleteEval})
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", marginTop: "10px" }}>
+                  <p style={{ fontSize: "12.5px", color: "rgba(250,250,250,0.6)", margin: 0, flex: 1 }}>
+                    Centang kotak pada baris mahasiswa yang dinyatakan <strong>Lulus & Dikukuhkan</strong> setelah Day 4. Jika dibiarkan kosong, status mahasiswa akan menjadi <strong>Tidak Lulus</strong>.
+                  </p>
+
+                  <div style={{ width: "260px", display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Filter Poin Mahasiswa:</label>
+                    <select 
+                      value={filterEvalPoints} 
+                      onChange={(e: any) => setFilterEvalPoints(e.target.value)} 
+                      style={{ background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "10px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, outline: "none", width: "100%" }}
+                    >
+                      <option value="all">Semua Mahasiswa ({students.length})</option>
+                      <option value="complete">Memenuhi 300/300 ({countCompleteEval})</option>
+                      <option value="incomplete">Belum Memenuhi ({countIncompleteEval})</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="detail-divider" style={{ marginBottom: "15px" }} />
+
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", color: "#FAFAFA", borderCollapse: "collapse", fontSize: "13px" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#fafafa", textAlign: "left" }}>
+                      <th style={{ padding: "10px" }}>NIM</th>
+                      <th style={{ padding: "10px" }}>NAMA MAHASISWA</th>
+                      <th style={{ padding: "10px", textAlign: "center" }}>TOTAL POIN</th>
+                      <th style={{ padding: "10px", textAlign: "center" }}>STATUS KELULUSAN</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredEvaluationStudents.length === 0 ? (
+                      <tr><td colSpan={4} style={{ padding: "20px", textAlign: "center", color: "#666" }}>Tidak ada data mahasiswa yang sesuai filter.</td></tr>
+                    ) : (
+                      filteredEvaluationStudents.map((stu, i) => {
+                        const isGraduated = !!stu.is_graduated;
+                        return (
+                          <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                            <td style={{ padding: "12px 10px", fontFamily: "monospace", fontWeight: "bold", color: "#00FF88" }}>{stu.nim}</td>
+                            <td style={{ padding: "12px 10px", color: "#FAFAFA", fontWeight: 600 }}>{stu.nama}</td>
+                            <td style={{ padding: "12px 10px", textAlign: "center", fontWeight: "bold", color: "#00FF88" }}>{stu.total_points || 0} / 300</td>
+                            <td style={{ padding: "12px 10px", textAlign: "center" }}>
+                              <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "12px", color: isGraduated ? "#00FF88" : "#FF3333", fontWeight: 700 }}>
+                                <input 
+                                  type="checkbox" 
+                                  checked={isGraduated} 
+                                  onChange={() => handleGraduationToggle(stu.nim, isGraduated)}
+                                  style={{ width: "16px", height: "16px", accentColor: "#00FF88", cursor: "pointer" }} 
+                                />
+                                <span>{isGraduated ? "LULUS & DIKUKUHKAN" : "TIDAK LULUS"}</span>
+                              </label>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
 
           {activeTab === "tugas" && (
-            <div className="clickable-task-card" style={{ cursor: "default", maxWidth: "600px" }}>
+            <div className="clickable-task-card" style={{ cursor: "default", maxWidth: "100%" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "15px" }}>
                 <Plus color="#00FF88" size={20} />
                 <h3 style={{ color: "#FAFAFA", fontSize: "16px", margin: 0 }}>BUAT PENUGASAN BARU</h3>
@@ -542,9 +899,15 @@ export default function AdminDashboard() {
               <div className="detail-divider" style={{ marginBottom: "20px" }} />
               <form onSubmit={handleAddTask} className="auth-form" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>ID Tugas</label><input type="text" placeholder="Contoh: individu-2" value={taskId} onChange={(e) => setTaskId(e.target.value)} required style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
-                <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Kategori</label><select value={taskCategory} onChange={(e) => setTaskCategory(e.target.value)} style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }}><option value="individu">Individu</option><option value="kelompok">Kelompok</option><option value="angkatan">Angkatan</option></select></div>
+                <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Kategori</label><select value={taskCategory} onChange={(e) => setTaskCategory(e.target.value)} style={{ background: "#0a0a0a", border: "1.5px solid #1B22A7", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }}><option value="individu">Individu</option><option value="kelompok">Kelompok</option><option value="angkatan">Angkatan</option></select></div>
                 <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Judul</label><input type="text" placeholder="Judul..." value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} required style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
-                <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Ketentuan (1 baris per poin)</label><textarea rows={4} placeholder="Poin..." value={taskRules} onChange={(e) => setTaskRules(e.target.value)} required style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
+                <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Ketentuan (klik enter untuk ketentuan selanjutnya)</label><textarea rows={4} placeholder="Ketentuan..." value={taskRules} onChange={(e) => setTaskRules(e.target.value)} required style={{ background: "#0a0a0a", border: "1.5px solid #1B22A7", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
+                
+                <div className="input-group">
+                  <label style={{ fontSize: "12px", color: "#aaa" }}>Poin yang akan didapatkan</label>
+                  <input type="number" placeholder="Contoh: 10" value={taskPoints} onChange={(e) => setTaskPoints(e.target.value === "" ? "" : Number(e.target.value))} required style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} />
+                </div>
+
                 <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Deadline</label><input type="datetime-local" value={taskDeadline} onChange={(e) => setTaskDeadline(e.target.value)} required style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
                 <button type="submit" className="btn-auth-submit" disabled={loading} style={{ marginTop: "10px", padding: "12px", background: "#00FF88", color: "#000", fontWeight: 700, border: "none", borderRadius: "8px", cursor: "pointer" }}>{loading ? "MENYIMPAN..." : "TERBITKAN TUGAS"}</button>
               </form>
@@ -552,7 +915,7 @@ export default function AdminDashboard() {
           )}
 
           {activeTab === "pengumuman" && (
-            <div className="clickable-task-card" style={{ cursor: "default", maxWidth: "600px" }}>
+            <div className="clickable-task-card" style={{ cursor: "default", maxWidth: "100%" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "15px" }}>
                 <Megaphone color="#00FF88" size={20} />
                 <h3 style={{ color: "#FAFAFA", fontSize: "16px", margin: 0 }}>BUAT PENGUMUMAN RESMI</h3>
@@ -560,7 +923,7 @@ export default function AdminDashboard() {
               <div className="detail-divider" style={{ marginBottom: "20px" }} />
               <form onSubmit={handleAddAnnouncement} className="auth-form" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Judul</label><input type="text" placeholder="Judul..." value={annTitle} onChange={(e) => setAnnTitle(e.target.value)} required style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
-                <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Isi</label><textarea rows={6} placeholder="Isi..." value={annContent} onChange={(e) => setAnnContent(e.target.value)} required style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
+                <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Isi</label><textarea rows={6} placeholder="Isi..." value={annContent} onChange={(e) => setAnnContent(e.target.value)} required style={{ background: "#0a0a0a", border: "1.5px solid #1B22A7", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
                 <button type="submit" className="btn-auth-submit" disabled={loading} style={{ marginTop: "10px", padding: "12px", background: "#00FF88", color: "#000", fontWeight: 700, border: "none", borderRadius: "8px", cursor: "pointer" }}>{loading ? "TERBITKAN..." : "TERBITKAN PENGUMUMAN"}</button>
               </form>
             </div>
@@ -575,31 +938,33 @@ export default function AdminDashboard() {
                 <div style={{ overflowX: "auto", marginTop: "15px" }}>
                   <table style={{ width: "100%", color: "#FAFAFA", borderCollapse: "collapse", fontSize: "13px" }}>
                     <thead>
-                      <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#888", textAlign: "left" }}>
+                      <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#fafafa", textAlign: "left" }}>
                         <th style={{ padding: "10px" }}>ID</th>
                         <th style={{ padding: "10px" }}>KATEGORI</th>
                         <th style={{ padding: "10px" }}>JUDUL</th>
+                        <th style={{ padding: "10px" }}>POIN</th>
                         <th style={{ padding: "10px" }}>VISIBILITAS</th>
                         <th style={{ padding: "10px" }}>AKSI</th>
                       </tr>
                     </thead>
                     <tbody>
                       {tasks.length === 0 ? (
-                        <tr><td colSpan={5} style={{ padding: "15px", color: "#666" }}>Kosong.</td></tr>
+                        <tr><td colSpan={6} style={{ padding: "15px", color: "#666" }}>Kosong.</td></tr>
                       ) : (
                         tasks.map((t) => (
-                          <tr key={t.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                            <td style={{ padding: "10px", color: "#00FF88", fontFamily: "monospace" }}>{t.id}</td>
+                          <tr key={t.id} style={{ borderBottom: "1px solid transparent" }}>
+                            <td style={{ padding: "10px", color: "#fafafa", fontFamily: "monospace" }}>{t.id}</td>
                             <td style={{ padding: "10px" }}>{t.category}</td>
                             <td style={{ padding: "10px" }}>{t.title}</td>
+                            <td style={{ padding: "10px", color: "#fafafa", fontWeight: "bold" }}>+{t.points || 0}</td>
                             
                             <td style={{ padding: "10px", whiteSpace: "nowrap" }}>
                               {t.is_active !== false ? (
-                                <span style={{ background: "rgba(0,255,136,0.12)", border: "1px solid #00FF88", color: "#00FF88", padding: "4px 10px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap", display: "inline-block" }}>
-                                  AKTIF (TAMPIL)
+                                <span style={{ background: "transparent", border: "1px solid #00FF88", color: "#00FF88", padding: "4px 10px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap", display: "inline-block" }}>
+                                  DIAKTIFKAN
                                 </span>
                               ) : (
-                                <span style={{ background: "rgba(255,51,51,0.15)", border: "1px solid #FF3333", color: "#FF3333", padding: "4px 10px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap", display: "inline-block" }}>
+                                <span style={{ background: "transparent", border: "1px solid #FF3333", color: "#FF3333", padding: "4px 10px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap", display: "inline-block" }}>
                                   DISEMBUNYIKAN
                                 </span>
                               )}
@@ -608,10 +973,10 @@ export default function AdminDashboard() {
                             <td style={{ padding: "10px", display: "flex", gap: "8px", whiteSpace: "nowrap" }}>
                               <button 
                                 onClick={() => { 
-                                  setEditTaskData({ ...t, rules: t.rules?.join("\n") || "", deadline: new Date(t.deadline).toISOString().slice(0, 16) }); 
+                                  setEditTaskData({ ...t, rules: t.rules?.join("\n") || "", deadline: new Date(t.deadline).toISOString().slice(0, 16), points: t.points || 0 }); 
                                   setIsEditTaskModalOpen(true); 
                                 }} 
-                                style={{ background: "rgba(0,255,136,0.15)", border: "1px solid #00FF88", color: "#00FF88", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}
+                                style={{ background: "transparent", border: "1.5px solid #1B22A7", color: "#FAFAFA", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}
                               >
                                 <Pencil size={13} /> Edit
                               </button>
@@ -619,9 +984,9 @@ export default function AdminDashboard() {
                               <button 
                                 onClick={() => handleToggleTaskStatus(t.id, t.is_active !== false)} 
                                 style={{ 
-                                  background: t.is_active !== false ? "rgba(255,170,0,0.15)" : "rgba(0,255,136,0.15)", 
-                                  border: t.is_active !== false ? "1px solid #FFAA00" : "1px solid #00FF88", 
-                                  color: t.is_active !== false ? "#FFAA00" : "#00FF88", 
+                                  background: t.is_active !== false ? "transparent" : "transparent", 
+                                  border: t.is_active !== false ? "1px solid #FAFAFA" : "1.5px solid #1B22A7", 
+                                  color: t.is_active !== false ? "#FAFAFA" : "#FAFAFA", 
                                   padding: "6px 12px", 
                                   borderRadius: "6px", 
                                   cursor: "pointer",
@@ -646,7 +1011,7 @@ export default function AdminDashboard() {
                 <div style={{ overflowX: "auto", marginTop: "15px" }}>
                   <table style={{ width: "100%", color: "#FAFAFA", borderCollapse: "collapse", fontSize: "13px" }}>
                     <thead>
-                      <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#888", textAlign: "left" }}>
+                      <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#FAFAFA", textAlign: "left" }}>
                         <th style={{ padding: "10px" }}>JUDUL</th>
                         <th style={{ padding: "10px" }}>TANGGAL</th>
                         <th style={{ padding: "10px" }}>VISIBILITAS</th>
@@ -655,20 +1020,20 @@ export default function AdminDashboard() {
                     </thead>
                     <tbody>
                       {announcements.length === 0 ? (
-                        <tr><td colSpan={4} style={{ padding: "15px", color: "#666" }}>Kosong.</td></tr>
+                        <tr><td colSpan={4} style={{ padding: "15px", color: "#FAFAFA" }}>Kosong.</td></tr>
                       ) : (
                         announcements.map((a) => (
                           <tr key={a.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
                             <td style={{ padding: "10px" }}>{a.title}</td>
-                            <td style={{ padding: "10px", color: "#aaa" }}>{new Date(a.created_at).toLocaleDateString("id-ID")}</td>
+                            <td style={{ padding: "10px", color: "#FAFAFA" }}>{new Date(a.created_at).toLocaleDateString("id-ID")}</td>
                             
                             <td style={{ padding: "10px", whiteSpace: "nowrap" }}>
                               {a.is_active !== false ? (
-                                <span style={{ background: "rgba(0,255,136,0.12)", border: "1px solid #00FF88", color: "#00FF88", padding: "4px 10px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap", display: "inline-block" }}>
-                                  AKTIF (TAMPIL)
+                                <span style={{ background: "transparent", border: "1px solid #00FF88", color: "#00FF88", padding: "4px 10px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap", display: "inline-block" }}>
+                                  DIAKTFKAN
                                 </span>
                               ) : (
-                                <span style={{ background: "rgba(255,51,51,0.15)", border: "1px solid #FF3333", color: "#FF3333", padding: "4px 10px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap", display: "inline-block" }}>
+                                <span style={{ background: "transparent", border: "1px solid #FF3333", color: "#FF3333", padding: "4px 10px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap", display: "inline-block" }}>
                                   DISEMBUNYIKAN
                                 </span>
                               )}
@@ -677,7 +1042,7 @@ export default function AdminDashboard() {
                             <td style={{ padding: "10px", display: "flex", gap: "8px", whiteSpace: "nowrap" }}>
                               <button 
                                 onClick={() => { setEditAnnData(a); setIsEditAnnModalOpen(true); }} 
-                                style={{ background: "rgba(0,255,136,0.15)", border: "1px solid #00FF88", color: "#00FF88", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}
+                                style={{ background: "transparent", border: "1.5px solid #1B22A7", color: "#FAFAFA", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}
                               >
                                 <Pencil size={13} /> Edit
                               </button>
@@ -685,9 +1050,9 @@ export default function AdminDashboard() {
                               <button 
                                 onClick={() => handleToggleAnnStatus(a.id, a.title, a.is_active !== false)} 
                                 style={{ 
-                                  background: a.is_active !== false ? "rgba(255,170,0,0.15)" : "rgba(0,255,136,0.15)", 
-                                  border: a.is_active !== false ? "1px solid #FFAA00" : "1px solid #00FF88", 
-                                  color: a.is_active !== false ? "#FFAA00" : "#00FF88", 
+                                  background: a.is_active !== false ? "transparent" : "transparent", 
+                                  border: a.is_active !== false ? "1px solid #FAFAFA" : "1.5px solid #1B22A7", 
+                                  color: a.is_active !== false ? "#FAFAFA" : "#FAFAFA", 
                                   padding: "6px 12px", 
                                   borderRadius: "6px", 
                                   cursor: "pointer",
@@ -709,84 +1074,133 @@ export default function AdminDashboard() {
         </main>
       </div>
 
-      {/* MODAL KONFIRMASI CUSTOM */}
-      {confirmModal.isOpen && (
-        <div className="modal-overlay active" style={{ zIndex: 99999999 }} onClick={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}>
-          <div className="modal-card" style={{ maxWidth: "420px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <ShieldAlert className="modal-icon" style={{ color: "#FFAA00" }} />
-              <h2 style={{ color: "#FFAA00", fontSize: "16px" }}>{confirmModal.title}</h2>
+      {/* 🟢 MODAL POP-UP EDIT TUGAS */}
+      {isEditTaskModalOpen && editTaskData && (
+        <div className="modal-overlay active" style={{ zIndex: 999999 }}>
+          <div className="modal-card" style={{ maxWidth: "500px", textAlign: "left" }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px", width: "100%" }}>
+              <h3 style={{ color: "#FAFAFA", fontSize: "16px", margin: 0 }}>EDIT TUGAS</h3>
+              <button onClick={() => setIsEditTaskModalOpen(false)} style={{ background: "transparent", border: "none", color: "#aaa", cursor: "pointer" }}><X size={20} /></button>
             </div>
             
-            <p className="modal-desc" style={{ marginBottom: "25px", fontSize: "13px" }}>
-              {confirmModal.description}
-            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px", width: "100%" }}>
+              <div className="input-group">
+                <label style={{ fontSize: "11px", color: "#aaa" }}>Judul</label>
+                <input 
+                  type="text" 
+                  value={editTaskData.title} 
+                  onChange={(e) => setEditTaskData({ ...editTaskData, title: e.target.value })} 
+                  style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} 
+                />
+              </div>
 
-            <div className="modal-buttons" style={{ flexDirection: "row", gap: "10px" }}>
-              <button 
-                type="button" 
-                className="btn-modal-close" 
-                onClick={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
-                style={{ flex: 1 }}
-              >
-                BATAL
-              </button>
-              
-              <button 
-                type="button" 
-                className="btn-modal-primary" 
-                onClick={confirmModal.onConfirm}
-                style={{ flex: 1, background: "linear-gradient(135deg, #1B22A7 0%, #121674 100%)" }}
-              >
-                YA, LANJUTKAN
-              </button>
+              <div className="input-group">
+                <label style={{ fontSize: "11px", color: "#aaa" }}>Kategori</label>
+                <select 
+                  value={editTaskData.category} 
+                  onChange={(e) => setEditTaskData({ ...editTaskData, category: e.target.value })} 
+                  style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }}
+                >
+                  <option value="individu">Individu</option>
+                  <option value="kelompok">Kelompok</option>
+                  <option value="angkatan">Angkatan</option>
+                </select>
+              </div>
+
+              <div className="input-group">
+                <label style={{ fontSize: "11px", color: "#aaa" }}>Ketentuan (klik enter untuk ketentuan selanjunya)</label>
+                <textarea 
+                  rows={4} 
+                  value={editTaskData.rules} 
+                  onChange={(e) => setEditTaskData({ ...editTaskData, rules: e.target.value })} 
+                  style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} 
+                />
+              </div>
+
+              <div className="input-group">
+                <label style={{ fontSize: "11px", color: "#aaa" }}>Poin yang akan didapatkan</label>
+                <input 
+                  type="number" 
+                  value={editTaskData.points} 
+                  onChange={(e) => setEditTaskData({ ...editTaskData, points: e.target.value })} 
+                  style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} 
+                />
+              </div>
+
+              <div className="input-group">
+                <label style={{ fontSize: "11px", color: "#aaa" }}>Deadline</label>
+                <input 
+                  type="datetime-local" 
+                  value={editTaskData.deadline} 
+                  onChange={(e) => setEditTaskData({ ...editTaskData, deadline: e.target.value })} 
+                  style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} 
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: "10px", marginTop: "15px" }}>
+                <button type="button" onClick={handleSaveEditTask} className="btn-modal-primary" disabled={loading} style={{ background: "#00FF88", color: "#000", fontWeight: 700 }}>
+                  {loading ? "MENYIMPAN..." : "SIMPAN PERUBAHAN"}
+                </button>
+                <button type="button" onClick={() => setIsEditTaskModalOpen(false)} className="btn-modal-close">BATAL</button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL EDIT PENGUMUMAN */}
+      {/* 🟢 MODAL POP-UP EDIT PENGUMUMAN */}
       {isEditAnnModalOpen && editAnnData && (
-        <div style={{ zIndex: 9999999, position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={() => !loading && setIsEditAnnModalOpen(false)}>
-          <div style={{ maxWidth: "750px", width: "100%", background: "#111115", border: "1px solid #00FF88", borderRadius: "16px", padding: "24px 28px", boxShadow: "0 0 50px rgba(0, 255, 136, 0.25)", maxHeight: "85vh", overflowY: "auto", textAlign: "left" }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: "12px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><Pencil style={{ width: "20px", height: "20px", color: "#00FF88" }} /><h2 style={{ color: "#FAFAFA", fontSize: "17px", margin: 0, fontWeight: 700 }}>EDIT PENGUMUMAN RESMI</h2></div>
-              <button onClick={() => setIsEditAnnModalOpen(false)} style={{ background: "transparent", border: "none", color: "#888", cursor: "pointer" }}><X size={20} /></button>
+        <div className="modal-overlay active" style={{ zIndex: 999999 }}>
+          <div className="modal-card" style={{ maxWidth: "500px", textAlign: "left" }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px", width: "100%" }}>
+              <h3 style={{ color: "#FAFAFA", fontSize: "16px", margin: 0 }}>EDIT PENGUMUMAN</h3>
+              <button onClick={() => setIsEditAnnModalOpen(false)} style={{ background: "transparent", border: "none", color: "#aaa", cursor: "pointer" }}><X size={20} /></button>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              <div><label style={{ fontSize: "11px", color: "#00FF88", fontWeight: 700, display: "block", marginBottom: "6px" }}>Judul</label><input type="text" value={editAnnData.title} onChange={(e) => setEditAnnData({ ...editAnnData, title: e.target.value })} style={{ background: "#0a0a0d", border: "1px solid #333", color: "#fff", padding: "12px", borderRadius: "8px", width: "100%", fontSize: "13px" }} /></div>
-              <div><label style={{ fontSize: "11px", color: "#00FF88", fontWeight: 700, display: "block", marginBottom: "6px" }}>Isi</label><textarea rows={8} value={editAnnData.content} onChange={(e) => setEditAnnData({ ...editAnnData, content: e.target.value })} style={{ background: "#0a0a0d", border: "1px solid #333", color: "#fff", padding: "12px", borderRadius: "8px", width: "100%", fontSize: "13px", resize: "vertical" }} /></div>
-            </div>
-            <div style={{ marginTop: "20px", display: "flex", justifyContent: "flex-end", gap: "10px", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: "14px" }}>
-              <button type="button" onClick={() => setIsEditAnnModalOpen(false)} disabled={loading} style={{ padding: "8px 18px", background: "transparent", border: "1px solid #444", color: "#aaa", borderRadius: "8px", cursor: "pointer" }}>BATAL</button>
-              <button type="button" onClick={handleSaveEditAnn} disabled={loading} style={{ padding: "8px 22px", background: "#00FF88", border: "none", color: "#000", fontWeight: 700, borderRadius: "8px", cursor: "pointer" }}>{loading ? "MENYIMPAN..." : "SIMPAN PERUBAHAN"}</button>
+            
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px", width: "100%" }}>
+              <div className="input-group">
+                <label style={{ fontSize: "11px", color: "#aaa" }}>Judul</label>
+                <input 
+                  type="text" 
+                  value={editAnnData.title} 
+                  onChange={(e) => setEditAnnData({ ...editAnnData, title: e.target.value })} 
+                  style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} 
+                />
+              </div>
+
+              <div className="input-group">
+                <label style={{ fontSize: "11px", color: "#aaa" }}>Isi</label>
+                <textarea 
+                  rows={5} 
+                  value={editAnnData.content} 
+                  onChange={(e) => setEditAnnData({ ...editAnnData, content: e.target.value })} 
+                  style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} 
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: "10px", marginTop: "15px" }}>
+                <button type="button" onClick={handleSaveEditAnn} className="btn-modal-primary" disabled={loading} style={{ background: "#00FF88", color: "#000", fontWeight: 700 }}>
+                  {loading ? "MENYIMPAN..." : "SIMPAN PERUBAHAN"}
+                </button>
+                <button type="button" onClick={() => setIsEditAnnModalOpen(false)} className="btn-modal-close">BATAL</button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL EDIT TUGAS */}
-      {isEditTaskModalOpen && editTaskData && (
-        <div style={{ zIndex: 9999999, position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={() => !loading && setIsEditTaskModalOpen(false)}>
-          <div style={{ maxWidth: "850px", width: "100%", background: "#111115", border: "1px solid #00FF88", borderRadius: "16px", padding: "24px 28px", boxShadow: "0 0 50px rgba(0, 255, 136, 0.25)", maxHeight: "85vh", overflowY: "auto", textAlign: "left" }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: "12px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><Pencil style={{ width: "20px", height: "20px", color: "#00FF88" }} /><h2 style={{ color: "#FAFAFA", fontSize: "17px", margin: 0, fontWeight: 700 }}>EDIT DATA PENUGASAN</h2></div>
-              <button onClick={() => setIsEditTaskModalOpen(false)} style={{ background: "transparent", border: "none", color: "#888", cursor: "pointer" }}><X size={20} /></button>
+      {/* 🟢 MODAL KONFIRMASI AKSI */}
+      {confirmModal.isOpen && (
+        <div className="modal-overlay active" style={{ zIndex: 9999999 }}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <AlertCircle className="modal-icon" style={{ color: "#FFAA00" }} />
+              <h2>{confirmModal.title}</h2>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                <div><label style={{ fontSize: "11px", color: "#00FF88", fontWeight: 700, display: "block", marginBottom: "6px" }}>Judul</label><input type="text" value={editTaskData.title} onChange={(e) => setEditTaskData({ ...editTaskData, title: e.target.value })} style={{ background: "#0a0a0d", border: "1px solid #333", color: "#fff", padding: "10px 12px", borderRadius: "8px", width: "100%", fontSize: "13px" }} /></div>
-                <div><label style={{ fontSize: "11px", color: "#00FF88", fontWeight: 700, display: "block", marginBottom: "6px" }}>Kategori</label><select value={editTaskData.category} onChange={(e) => setEditTaskData({ ...editTaskData, category: e.target.value })} style={{ background: "#0a0a0d", border: "1px solid #333", color: "#fff", padding: "10px 12px", borderRadius: "8px", width: "100%", fontSize: "13px" }}><option value="individu">Individu</option><option value="kelompok">Kelompok</option><option value="angkatan">Angkatan</option></select></div>
-                <div><label style={{ fontSize: "11px", color: "#00FF88", fontWeight: 700, display: "block", marginBottom: "6px" }}>Deadline</label><input type="datetime-local" value={editTaskData.deadline} onChange={(e) => setEditTaskData({ ...editTaskData, deadline: e.target.value })} style={{ background: "#0a0a0d", border: "1px solid #333", color: "#fff", padding: "10px 12px", borderRadius: "8px", width: "100%", fontSize: "13px" }} /></div>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column" }}>
-                <label style={{ fontSize: "11px", color: "#00FF88", fontWeight: 700, display: "block", marginBottom: "6px" }}>Ketentuan</label>
-                <textarea rows={8} value={editTaskData.rules} onChange={(e) => setEditTaskData({ ...editTaskData, rules: e.target.value })} style={{ background: "#0a0a0d", border: "1px solid #333", color: "#fff", padding: "12px", borderRadius: "8px", width: "100%", fontSize: "13px", resize: "none", flex: 1 }} />
-              </div>
-            </div>
-            <div style={{ marginTop: "20px", display: "flex", justifyContent: "flex-end", gap: "10px", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: "14px" }}>
-              <button type="button" onClick={() => setIsEditTaskModalOpen(false)} disabled={loading} style={{ padding: "8px 18px", background: "transparent", border: "1px solid #444", color: "#aaa", borderRadius: "8px", cursor: "pointer" }}>BATAL</button>
-              <button type="button" onClick={handleSaveEditTask} disabled={loading} style={{ padding: "8px 22px", background: "#00FF88", border: "none", color: "#000", fontWeight: 700, borderRadius: "8px", cursor: "pointer" }}>{loading ? "MENYIMPAN..." : "SIMPAN PERUBAHAN"}</button>
+            <p className="modal-desc" style={{ marginBottom: "20px" }}>{confirmModal.description}</p>
+            <div className="modal-buttons">
+              <button type="button" className="btn-modal-primary" onClick={confirmModal.onConfirm} style={{ background: "#FFAA00", color: "#000" }}>YA, LANJUTKAN</button>
+              <button type="button" className="btn-modal-close" onClick={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}>BATAL</button>
             </div>
           </div>
         </div>

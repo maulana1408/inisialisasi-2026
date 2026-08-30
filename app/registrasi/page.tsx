@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
-export default function AktivasiPage() {
+export default function RegistrasiPage() {
   const router = useRouter();
   const [nim, setNim] = useState("");
   const [nama, setNama] = useState("");
@@ -250,7 +250,7 @@ export default function AktivasiPage() {
               </div>
 
               <button type="submit" className="btn-auth-submit" disabled={loading}>
-                {loading ? "PROSES..." : "REGISTRASI AKUN"}
+                {loading ? "MEMPROSES..." : "REGISTRASI AKUN"}
               </button>
             </form>
 
@@ -278,7 +278,7 @@ export default function AktivasiPage() {
             </div>
             <h2 className="auth-title" style={{ fontSize: "18px", marginBottom: "10px" }}>REGISTRASI BERHASIL</h2>
             <p className="auth-subtitle" style={{ marginBottom: "25px", lineHeight: "1.6" }}>
-              Tautan verifikasi telah dikirimkan ke email Anda (<strong style={{ color: "#FAFAFA" }}>{email}</strong>). Silakan buka kotak masuk email Anda untuk mengaktifkan akun.
+              Tautan verifikasi telah dikirimkan ke email Anda (<strong style={{ color: "#FAFAFA" }}>{email}</strong>). Silakan buka kotak masuk / spam email Anda untuk mengaktifkan akun.
             </p>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "12px", width: "100%" }}>
@@ -297,7 +297,7 @@ export default function AktivasiPage() {
                   justifyContent: "center"
                 }}
               >
-                Buka Email / Kotak Masuk →
+                Buka Kotak Masuk / Spam Email →
               </a>
 
               <a 
