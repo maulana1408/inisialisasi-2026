@@ -299,7 +299,7 @@ export default function Home() {
                 </div>
                 <div className="point-row">
                   <div className="point-left">
-                    <p>Mahasiswa baru diwajibkan mengumpulkan minimal <strong>3.200 poin</strong> agar dapat lulus dan dikukuhkan.</p>
+                    <p>Mahasiswa baru diwajibkan mengumpulkan minimal <strong>2.300 poin</strong> agar dapat lulus dan dikukuhkan.</p>
                   </div>
                 </div>
               </div>

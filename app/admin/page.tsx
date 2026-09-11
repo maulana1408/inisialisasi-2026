@@ -1002,11 +1002,11 @@ export default function AdminPage() {
                 <table style={{ width: "100%", color: "#FAFAFA", borderCollapse: "collapse", fontSize: "13px" }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#fafafa", textAlign: "left" }}>
-                      <th style={{ padding: "10px" }}>NIM</th>
-                      <th style={{ padding: "10px" }}>NAMA MAHASISWA</th>
-                      <th style={{ padding: "10px" }}>KELOMPOK</th>
-                      <th style={{ padding: "10px", textAlign: "center" }}>STATUS KEHADIRAN (CEKLIS)</th>
-                      <th style={{ padding: "10px", textAlign: "left" }}>POIN PRESENSI (DROPDOWN)</th>
+                      <th style={{ padding: "10px", textAlign: "center" }}>NIM</th>
+                      <th style={{ padding: "10px", textAlign: "center" }}>NAMA MAHASISWA</th>
+                      <th style={{ padding: "10px", textAlign: "center" }}>KELOMPOK</th>
+                      <th style={{ padding: "10px", textAlign: "center" }}>STATUS KEHADIRAN</th>
+                      <th style={{ padding: "10px", textAlign: "center" }}>POIN PRESENSI</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1097,7 +1097,7 @@ export default function AdminPage() {
                         gap: "5px"
                       }}
                     >
-                      ⚡ Tombol Otomatis Luluskan (&ge; {GRADUATION_THRESHOLD})
+                    Tombol Otomatis Luluskan (&ge; {GRADUATION_THRESHOLD})
                     </button>
 
                     <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "transparent", border: "1px solid #00FF88", color: "#00FF88", whiteSpace: "nowrap" }}>
@@ -1213,7 +1213,7 @@ export default function AdminPage() {
                 <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Judul</label><input type="text" placeholder="Judul..." value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} required style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
                 
                 <div className="input-group">
-                  <label style={{ fontSize: "12px", color: "#aaa" }}>Ketentuan Tugas (Tulis sebagai paragraf / penjelasan bebas)</label>
+                  <label style={{ fontSize: "11px", color: "#aaa" }}>Ketentuan Tugas (Tulis sebagai paragraf / penjelasan bebas)</label>
                   <textarea rows={6} placeholder="Tulis rincian ketentuan penugasan..." value={taskRules} onChange={(e) => setTaskRules(e.target.value)} required style={{ background: "#0a0a0a", border: "1.5px solid #1B22A7", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} />
                 </div>
                 
@@ -1248,7 +1248,7 @@ export default function AdminPage() {
               <div className="detail-divider" style={{ marginBottom: "20px" }} />
               <form onSubmit={handleAddAnnouncement} className="auth-form" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Judul</label><input type="text" placeholder="Judul..." value={annTitle} onChange={(e) => setAnnTitle(e.target.value)} required style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
-                <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Isi</label><textarea rows={6} placeholder="Isi..." value={annContent} onChange={(e) => setAnnContent(e.target.value)} required style={{ background: "#0a0a0a", border: "1.5px solid #1B22A7", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
+                <div className="input-group"><label style={{ fontSize: "11px", color: "#aaa" }}>Isi</label><textarea rows={6} placeholder="Isi..." value={annContent} onChange={(e) => setAnnContent(e.target.value)} required style={{ background: "#0a0a0a", border: "1.5px solid #1B22A7", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
                 <button type="submit" className="btn-auth-submit" disabled={loading} style={{ marginTop: "10px", padding: "12px", background: "#00FF88", color: "#00FF88", fontWeight: 700, border: "none", borderRadius: "8px", cursor: "pointer" }}>{loading ? "TERBITKAN..." : "TERBITKAN PENGUMUMAN"}</button>
               </form>
             </div>

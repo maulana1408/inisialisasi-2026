@@ -752,13 +752,15 @@ export default function PenugasanPage() {
       >
         <aside 
           className="task-sidebar" 
-          style={{
+          style={{ 
+            width: "260px",
+            minWidth: "260px",
             display: "flex", 
             flexDirection: "column", 
             position: "sticky", 
-            top: "120px",
+            top: "120px", 
             height: "calc(100vh - 140px)", 
-            maxHeight: "800px",
+            maxHeight: "820px",
             boxSizing: "border-box",
             padding: "24px" 
           }}
