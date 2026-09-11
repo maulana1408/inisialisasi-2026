@@ -833,7 +833,7 @@ export default function PenugasanPage() {
                 </div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: "6px", marginBottom: "12px" }}>
                   <span style={{ fontSize: "24px", fontWeight: 800, color: "#FAFAFA" }}>{userPoints}</span>
-                  <span style={{ fontSize: "13px", color: "rgba(250, 250, 250, 0.5)", fontWeight: 600 }}>/ 3375</span>
+                  <span style={{ fontSize: "13px", color: "rgba(250, 250, 250, 0.5)", fontWeight: 600 }}>/ 2.300</span>
                 </div>
 
                 <div style={{ borderTop: "1px solid #1B22A7", paddingTop: "10px" }}>
