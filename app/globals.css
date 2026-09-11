@@ -308,9 +308,16 @@ a.btn-outline:active,
   background: rgba(27, 34, 167, 0.08);
   color: #FAFAFB !important;
   text-decoration: none;
-  border-radius: 12px;
+  border-radius: 50px;
   font-weight: 600;
   font-size: 13.5px;
+  transition: background-color 0.25s ease, border-color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease !important;
+}
+
+.hero-buttons .btn-outline:hover {
+  background: #1B22A7 !important;
+  border-color: #1B22A7 !important;
+  color: #FAFAFA !important;
 }
 
 /* ===================================================

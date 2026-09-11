@@ -12,31 +12,22 @@ export default function Navbar({ onPenugasanClick }: NavbarProps) {
   const router = useRouter();
   const pathname = usePathname();
 
-  const [isLoggedIn, setIsLoggedIn] = useState(() => {
-    if (typeof window !== "undefined") {
-      if (pathname.startsWith("/penugasan") || pathname.startsWith("/admin") || pathname.startsWith("/panitia")) {
-        return true;
-      }
-      const userNim = localStorage.getItem("user_nim");
-      return !!userNim;
-    }
-    return false;
-  });
+  // 🟢 Cegah mismatch SSR dengan nilai awal false, lalu cek localStorage setelah mounted
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState("home");
-  const [showRestrictionModal, setShowRestrictionModal] = useState(false);
 
-  // Helper untuk mengecek apakah user sedang berada di route terproteksi/sesi aktif
   const isProtectedRoute =
     pathname.startsWith("/penugasan") ||
     pathname.startsWith("/admin") ||
     pathname.startsWith("/panitia");
 
   useEffect(() => {
-    // Sinkronisasi status login setiap rute berubah
+    setIsMounted(true);
     const userNim = localStorage.getItem("user_nim");
-    setIsLoggedIn(!!userNim);
+    setIsLoggedIn(!!userNim || isProtectedRoute);
 
     if (pathname !== "/") return;
 
@@ -68,7 +59,7 @@ export default function Navbar({ onPenugasanClick }: NavbarProps) {
         if (el) observer.unobserve(el);
       });
     };
-  }, [pathname]);
+  }, [pathname, isProtectedRoute]);
 
   const handleLogout = () => {
     localStorage.removeItem("user_nim");
@@ -79,13 +70,7 @@ export default function Navbar({ onPenugasanClick }: NavbarProps) {
   };
 
   const handleRestrictedClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (isProtectedRoute) {
-      e.preventDefault();
-      setIsMenuOpen(false);
-      setShowRestrictionModal(true);
-    } else {
-      setIsMenuOpen(false);
-    }
+    setIsMenuOpen(false);
   };
 
   const handlePenugasanClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -111,7 +96,6 @@ export default function Navbar({ onPenugasanClick }: NavbarProps) {
 
   return (
     <>
-      {/* 🟢 EFEK GRADASI FADE-OUT ATAS (MENUSUS KELUAR KE ATAS LEBIH PEKAT & SELARAS WARNA WEB) */}
       <div
         style={{
           position: "fixed",
@@ -128,7 +112,6 @@ export default function Navbar({ onPenugasanClick }: NavbarProps) {
       <nav className="navbar">
         <div className="nav-container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
           
-          {/* AREA LOGO & JUDUL */}
           <a 
             href="/#home" 
             className="logo-area" 
@@ -148,7 +131,6 @@ export default function Navbar({ onPenugasanClick }: NavbarProps) {
             <span className="logo-text">Inisialisasi 2026</span>
           </a>
 
-          {/* TOMBOL HAMBURGER MOBILE */}
           <button 
             className={`hamburger ${isMenuOpen ? "active" : ""}`} 
             onClick={toggleMenu}
@@ -160,7 +142,6 @@ export default function Navbar({ onPenugasanClick }: NavbarProps) {
             <span></span>
           </button>
 
-          {/* MENU UTAMA & TOMBOL LOGIN/LOGOUT */}
           <ul className={`nav-links ${isMenuOpen ? "active" : ""}`} id="navLinks">
             <li>
               <a 
@@ -199,9 +180,9 @@ export default function Navbar({ onPenugasanClick }: NavbarProps) {
               </a>
             </li>
 
-            {/* TOMBOL OTENTIKASI */}
+            {/* TOMBOL OTENTIKASI (Dirender aman setelah mounted) */}
             <li>
-              {isProtectedRoute || isLoggedIn ? (
+              {isMounted && (isProtectedRoute || isLoggedIn) ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -228,42 +209,6 @@ export default function Navbar({ onPenugasanClick }: NavbarProps) {
           </ul>
         </div>
       </nav>
-
-      {/* MODAL PERINGATAN AKSES DIBATASI */}
-      {showRestrictionModal && (
-        <div className="modal-overlay">
-          <div className="modal-card">
-            <div className="modal-header">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-              </svg>
-              <h2>Akses Dibatasi</h2>
-            </div>
-            <p className="modal-desc">
-              Anda harus melakukan <strong>Log Out</strong> terlebih dahulu sebelum berpindah ke menu lain selama sesi aktif.
-            </p>
-            <div className="modal-buttons">
-              <button 
-                type="button" 
-                onClick={() => {
-                  setShowRestrictionModal(false);
-                  handleLogout();
-                }}
-                className="btn-modal-primary"
-              >
-                Log Out Sekarang
-              </button>
-              <button 
-                type="button" 
-                onClick={() => setShowRestrictionModal(false)}
-                className="btn-modal-close"
-              >
-                Tutup
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

@@ -30,12 +30,22 @@ export default function AdminPage() {
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<{ [key: string]: boolean }>({});
+  const [attendancePointsMap, setAttendancePointsMap] = useState<{ [key: string]: number }>({});
 
+  // State Filter Rekap
   const [filterCategory, setFilterCategory] = useState<"all" | "individu" | "kelompok" | "angkatan">("all");
   const [filterLateStatus, setFilterLateStatus] = useState<"all" | "ontime" | "late">("all");
   const [filterTaskTitle, setFilterTaskTitle] = useState<string>("all");
+  const [filterKelompok, setFilterKelompok] = useState<string>("all");
+
+  // State Filter Presensi
   const [filterAttendanceStatus, setFilterAttendanceStatus] = useState<"all" | "present" | "absent">("all");
+  const [filterAttendanceKelompok, setFilterAttendanceKelompok] = useState<string>("all");
+
+  // State Filter Evaluasi Akhir
   const [filterEvalPoints, setFilterEvalPoints] = useState<"all" | "complete" | "incomplete">("all");
+  const [filterEvalKelompok, setFilterEvalKelompok] = useState<string>("all");
+  const GRADUATION_THRESHOLD = 2300;
 
   const [selectedSession, setSelectedSession] = useState<string>("pra-inisialisasi");
   const [sessionPoints, setSessionPoints] = useState<number | "">("");
@@ -72,6 +82,11 @@ export default function AdminPage() {
   const [userNama, setUserNama] = useState<string>("");
   const [isLoaded, setIsLoaded] = useState(false);
 
+  const listKelompok = [
+    "LARAVEL", "ZEND", "SYMPHONY", "LUMEN", "SLIM", 
+    "DART", "PHALCON", "FLUTTER", "LAMINAS", "FLIGHT"
+  ];
+
   const [toast, setToast] = useState<{ show: boolean; isExpanded: boolean; message: string; subMessage: string; isError: boolean }>({
     show: false,
     isExpanded: false,
@@ -92,6 +107,40 @@ export default function AdminPage() {
         setToast((prev) => ({ ...prev, show: false }));
       }, 350);
     }, 4200);
+  };
+
+  // Helper konversi datetime-local ke ISO agar tidak tergeser zona waktu UTC
+  const formatInputToISO = (datetimeLocalVal: string) => {
+    if (!datetimeLocalVal) return "";
+    const localDate = new Date(datetimeLocalVal);
+    return isNaN(localDate.getTime()) ? datetimeLocalVal : localDate.toISOString();
+  };
+
+  // Helper konversi ISO ke format value datetime-local beserta detik
+  const formatISOToInput = (isoString: string) => {
+    if (!isoString) return "";
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return "";
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  };
+
+  // Helper format tampilan waktu terkunci ke WIB dengan detik
+  const formatDateTimeWIB = (dateString: string) => {
+    if (!dateString) return "-";
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return dateString;
+
+    return d.toLocaleString("id-ID", {
+      timeZone: "Asia/Jakarta",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    }).replace(/\./g, ":");
   };
 
   useEffect(() => {
@@ -126,8 +175,8 @@ export default function AdminPage() {
   const loadAllData = async () => {
     const { data: taskData } = await supabase.from("tasks").select("*").order("created_at", { ascending: true });
     const { data: annData } = await supabase.from("announcements").select("*").order("created_at", { ascending: true });
-    const { data: subData } = await supabase.from("submissions").select("*, users(nama, nim)").order("submitted_at", { ascending: false });
-    const { data: userData } = await supabase.from("users").select("nim, nama, role, total_points, is_graduated, graduation_status").neq("role", "admin").order("total_points", { ascending: false });
+    const { data: subData } = await supabase.from("submissions").select("*, users(nama, nim, kelompok)").order("submitted_at", { ascending: false });
+    const { data: userData } = await supabase.from("users").select("nim, nama, role, total_points, is_graduated, graduation_status, kelompok").neq("role", "admin").order("total_points", { ascending: false });
 
     if (taskData) {
       setTasks(taskData);
@@ -150,15 +199,22 @@ export default function AdminPage() {
 
       if (data && data.length > 0) {
         const attMap: { [key: string]: boolean } = {};
+        const ptsMap: { [key: string]: number } = {};
+
         data.forEach((att) => {
           attMap[att.user_nim] = att.is_present;
+          ptsMap[att.user_nim] = att.awarded_points || 0;
         });
+
         setAttendanceRecords(attMap);
+        setAttendancePointsMap(ptsMap);
+
         if (data[0].awarded_points !== undefined && data[0].awarded_points !== null) {
           setSessionPoints(data[0].awarded_points);
         }
       } else {
         setAttendanceRecords({});
+        setAttendancePointsMap({});
       }
     }
     loadAttendance();
@@ -166,9 +222,10 @@ export default function AdminPage() {
 
   const handleAttendanceToggle = async (nim: string, currentStatus: boolean) => {
     const nextStatus = !currentStatus;
-    const currentPoints = Number(sessionPoints) || 0;
+    const currentPoints = nextStatus ? (attendancePointsMap[nim] || Number(sessionPoints) || 375) : 0;
     
     setAttendanceRecords((prev) => ({ ...prev, [nim]: nextStatus }));
+    setAttendancePointsMap((prev) => ({ ...prev, [nim]: currentPoints }));
 
     const { error } = await supabase
       .from("attendance")
@@ -177,7 +234,7 @@ export default function AdminPage() {
           user_nim: nim,
           session_name: selectedSession,
           is_present: nextStatus,
-          awarded_points: nextStatus ? currentPoints : 0
+          awarded_points: currentPoints
         },
         { onConflict: 'user_nim,session_name' }
       );
@@ -185,34 +242,58 @@ export default function AdminPage() {
     if (error) {
       triggerToast("GAGAL SIMPAN", error.message, true);
     } else {
-      const { data: subPointsData } = await supabase
-        .from("submissions")
-        .select("awarded_points")
-        .eq("user_nim", nim)
-        .eq("is_validated", true);
-
-      const { data: attPointsData } = await supabase
-        .from("attendance")
-        .select("awarded_points")
-        .eq("user_nim", nim)
-        .eq("is_present", true);
-
-      const totalTaskP = subPointsData?.reduce((acc, curr) => acc + (curr.awarded_points || 0), 0) || 0;
-      const totalAttP = attPointsData?.reduce((acc, curr) => acc + (curr.awarded_points || 0), 0) || 0;
-      const grandTotal = totalTaskP + totalAttP;
-
-      await supabase
-        .from("users")
-        .update({ total_points: grandTotal })
-        .eq("nim", nim);
-
+      await recalculateUserTotalPoints(nim);
       loadAllData();
-      triggerToast(
-        nextStatus ? "HADIR DICATAT" : "KEHADIRAN DIHAPUS",
-        nextStatus ? `Memberikan ${currentPoints} poin presensi untuk ${nim}` : `Kehadiran ${nim} dibatalkan`,
-        false
-      );
     }
+  };
+
+  const handleAttendancePointsChange = async (nim: string, newPoints: number) => {
+    const isPresent = newPoints > 0;
+
+    setAttendancePointsMap((prev) => ({ ...prev, [nim]: newPoints }));
+    setAttendanceRecords((prev) => ({ ...prev, [nim]: isPresent }));
+
+    const { error } = await supabase
+      .from("attendance")
+      .upsert(
+        {
+          user_nim: nim,
+          session_name: selectedSession,
+          is_present: isPresent,
+          awarded_points: newPoints
+        },
+        { onConflict: 'user_nim,session_name' }
+      );
+
+    if (error) {
+      triggerToast("GAGAL SIMPAN POIN", error.message, true);
+    } else {
+      await recalculateUserTotalPoints(nim);
+      triggerToast("POIN DIPERBARUI", `Poin presensi ${nim} diset ke ${newPoints} poin!`, false);
+      loadAllData();
+    }
+  };
+
+  const recalculateUserTotalPoints = async (nim: string) => {
+    const { data: subPointsData } = await supabase
+      .from("submissions")
+      .select("awarded_points")
+      .eq("user_nim", nim)
+      .eq("is_validated", true);
+
+    const { data: attPointsData } = await supabase
+      .from("attendance")
+      .select("awarded_points")
+      .eq("user_nim", nim);
+
+    const totalTaskP = subPointsData?.reduce((acc, curr) => acc + (curr.awarded_points || 0), 0) || 0;
+    const totalAttP = attPointsData?.reduce((acc, curr) => acc + (curr.awarded_points || 0), 0) || 0;
+    const grandTotal = totalTaskP + totalAttP;
+
+    await supabase
+      .from("users")
+      .update({ total_points: grandTotal })
+      .eq("nim", nim);
   };
 
   const handleGraduationToggle = async (nim: string, currentGraduatedState: boolean) => {
@@ -239,6 +320,34 @@ export default function AdminPage() {
     }
   };
 
+  const handleAutoGraduateByThreshold = async () => {
+    setLoading(true);
+    try {
+      const targetStudents = filterEvalKelompok === "all"
+        ? students
+        : students.filter((s) => s.kelompok === filterEvalKelompok);
+
+      const qualifiedStudents = targetStudents.filter((s) => (s.total_points || 0) >= GRADUATION_THRESHOLD);
+      
+      for (const stu of qualifiedStudents) {
+        await supabase
+          .from("users")
+          .update({
+            is_graduated: true,
+            graduation_status: "LULUS & DIKUKUHKAN"
+          })
+          .eq("nim", stu.nim);
+      }
+
+      triggerToast("BERHASIL", `Mahasiswa dengan poin >= ${GRADUATION_THRESHOLD} berhasil diluluskan secara otomatis!`, false);
+      loadAllData();
+    } catch (err: any) {
+      triggerToast("GAGAL", err.message || "Terjadi kesalahan saat memproses kelulusan otomatis.", true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSaveSessionPoints = async () => {
     const pointsVal = Number(sessionPoints) || 0;
     const { error } = await supabase
@@ -257,14 +366,13 @@ export default function AdminPage() {
   const handleAddTask = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const rulesArray = taskRules.split("\n").filter((r) => r.trim() !== "");
 
     const { error } = await supabase.from("tasks").insert({
       id: taskId.trim(),
       category: taskCategory,
       title: taskTitle,
-      rules: rulesArray,
-      deadline: new Date(taskDeadline).toISOString(),
+      rules: taskRules,
+      deadline: formatInputToISO(taskDeadline),
       points: Number(taskPoints) || 0,
       is_active: true,
     });
@@ -329,17 +437,17 @@ export default function AdminPage() {
     setLoading(true);
 
     try {
-      const rulesArray = typeof editTaskData.rules === "string" 
-        ? editTaskData.rules.split("\n").filter((r: string) => r.trim() !== "")
-        : editTaskData.rules;
+      const formattedRules = Array.isArray(editTaskData.rules)
+        ? editTaskData.rules.join("\n")
+        : (editTaskData.rules || "");
 
       const { error } = await supabase
         .from("tasks")
         .update({
           title: editTaskData.title,
           category: editTaskData.category,
-          rules: rulesArray,
-          deadline: new Date(editTaskData.deadline).toISOString(),
+          rules: formattedRules,
+          deadline: formatInputToISO(editTaskData.deadline),
           points: Number(editTaskData.points) || 0,
         })
         .eq("id", editTaskData.id);
@@ -406,47 +514,63 @@ export default function AdminPage() {
     });
   };
 
-  const handleValidationToggle = async (submissionId: string, currentValidatedState: boolean, pointsToAward: number, targetNim: string) => {
-    const nextState = !currentValidatedState;
-    const awardedPoints = nextState ? pointsToAward : 0;
+  const getTaskPointOptions = (category: string, title: string) => {
+    const lowerTitle = (title || "").toLowerCase();
+    const isRangkuman = lowerTitle.includes("rangkuman") || lowerTitle.includes("resume");
+
+    if (isRangkuman) {
+      return [
+        { label: "Tepat waktu (50)", points: 50 },
+        { label: "Terlambat (30)", points: 30 },
+        { label: "Revisi (25)", points: 25 },
+        { label: "Telat & Revisi (20)", points: 20 },
+        { label: "Tolak (0)", points: 0 }
+      ];
+    }
+
+    if (category === "kelompok") {
+      return [
+        { label: "Tepat waktu (85)", points: 85 },
+        { label: "Terlambat (70)", points: 70 },
+        { label: "Revisi (60)", points: 60 },
+        { label: "Telat & Revisi (35)", points: 35 },
+        { label: "Tolak (0)", points: 0 }
+      ];
+    }
+
+    if (category === "angkatan") {
+      return [
+        { label: "Tepat waktu (70)", points: 70 },
+        { label: "Terlambat (60)", points: 60 },
+        { label: "Tolak (0)", points: 0 }
+      ];
+    }
+
+    return [
+      { label: "Tepat waktu (100)", points: 100 },
+      { label: "Terlambat (85)", points: 85 },
+      { label: "Revisi (70)", points: 70 },
+      { label: "Telat & Revisi (45)", points: 45 },
+      { label: "Tolak (0)", points: 0 }
+    ];
+  };
+
+  const handleTaskPointOptionChange = async (submissionId: string, targetNim: string, newPoints: number) => {
+    const isValidated = newPoints > 0;
 
     const { error } = await supabase
       .from("submissions")
-      .update({ 
-        is_validated: nextState,
-        awarded_points: awardedPoints 
+      .update({
+        is_validated: isValidated,
+        awarded_points: newPoints
       })
       .eq("id", submissionId);
 
     if (error) {
-      triggerToast("GAGAL VALIDASI", error.message, true);
+      triggerToast("GAGAL SIMPAN POIN", error.message, true);
     } else {
-      const { data: subPointsData } = await supabase
-        .from("submissions")
-        .select("awarded_points")
-        .eq("user_nim", targetNim)
-        .eq("is_validated", true);
-
-      const { data: attPointsData } = await supabase
-        .from("attendance")
-        .select("awarded_points")
-        .eq("user_nim", targetNim)
-        .eq("is_present", true);
-
-      const totalTaskP = subPointsData?.reduce((acc, curr) => acc + (curr.awarded_points || 0), 0) || 0;
-      const totalAttP = attPointsData?.reduce((acc, curr) => acc + (curr.awarded_points || 0), 0) || 0;
-      const grandTotal = totalTaskP + totalAttP;
-
-      await supabase
-        .from("users")
-        .update({ total_points: grandTotal })
-        .eq("nim", targetNim);
-
-      triggerToast(
-        nextState ? "POIN DIKIRIM" : "VALIDASI DIBATALKAN", 
-        nextState ? `Berhasil memberikan ${awardedPoints} poin ke ${targetNim}!` : `Poin untuk ${targetNim} ditarik kembali.`, 
-        false
-      );
+      await recalculateUserTotalPoints(targetNim);
+      triggerToast("POIN PENUGASAN DIUBAH", `Tugas ${targetNim} diset ke ${newPoints} poin!`, false);
       loadAllData();
     }
   };
@@ -462,6 +586,7 @@ export default function AdminPage() {
     let category = task?.category || "individu";
     let taskTitleDisplay = task?.title || sub.tugas_id || sub.task_id;
     let taskPointsValue = task?.points || 0;
+    let userKelompok = sub.users?.kelompok || "-";
 
     if (!sub.status && task && task.deadline) {
       isLate = new Date(sub.submitted_at) > new Date(task.deadline);
@@ -473,6 +598,7 @@ export default function AdminPage() {
       category,
       task_title: taskTitleDisplay,
       task_points: taskPointsValue,
+      kelompok: userKelompok,
       displayNama: sub.nama || sub.users?.nama || "-",
       viewUrl: getCleanViewUrl(sub.file_url)
     };
@@ -493,23 +619,44 @@ export default function AdminPage() {
       matchTitle = sub.task_title === filterTaskTitle;
     }
 
-    return matchCat && matchStatus && matchTitle;
+    let matchKelompok = true;
+    if (filterKelompok !== "all") {
+      matchKelompok = sub.kelompok === filterKelompok;
+    }
+
+    return matchCat && matchStatus && matchTitle && matchKelompok;
   });
 
+  // Filter Presensi Mahasiswa
   const filteredStudents = students.filter((stu) => {
     const isPresent = !!attendanceRecords[stu.nim];
-    if (filterAttendanceStatus === "present") return isPresent;
-    if (filterAttendanceStatus === "absent") return !isPresent;
+    let matchStatus = true;
+    if (filterAttendanceStatus === "present") matchStatus = isPresent;
+    if (filterAttendanceStatus === "absent") matchStatus = !isPresent;
+
+    let matchKelompok = true;
+    if (filterAttendanceKelompok !== "all") {
+      matchKelompok = stu.kelompok === filterAttendanceKelompok;
+    }
+
+    return matchStatus && matchKelompok;
+  });
+
+  // Filter Mahasiswa di Tab Evaluasi Akhir
+  const scopedEvaluationStudents = students.filter((stu) => {
+    if (filterEvalKelompok !== "all") {
+      return stu.kelompok === filterEvalKelompok;
+    }
     return true;
   });
 
-  const countCompleteEval = students.filter((s) => (s.total_points || 0) >= 300).length;
-  const countIncompleteEval = students.length - countCompleteEval;
+  const countCompleteEval = scopedEvaluationStudents.filter((s) => (s.total_points || 0) >= GRADUATION_THRESHOLD).length;
+  const countIncompleteEval = scopedEvaluationStudents.length - countCompleteEval;
 
-  const filteredEvaluationStudents = students.filter((stu) => {
+  const filteredEvaluationStudents = scopedEvaluationStudents.filter((stu) => {
     const points = stu.total_points || 0;
-    if (filterEvalPoints === "complete") return points >= 300;
-    if (filterEvalPoints === "incomplete") return points < 300;
+    if (filterEvalPoints === "complete") return points >= GRADUATION_THRESHOLD;
+    if (filterEvalPoints === "incomplete") return points < GRADUATION_THRESHOLD;
     return true;
   });
 
@@ -518,18 +665,36 @@ export default function AdminPage() {
   const countPresent = students.filter((s) => attendanceRecords[s.nim]).length;
   const countAbsent = students.length - countPresent;
 
+  const availableTasks = filterCategory === "all" 
+    ? tasks 
+    : tasks.filter((t) => t.category?.toLowerCase() === filterCategory.toLowerCase());
+
   const uniqueTaskTitles = Array.from(
-    new Set(tasks.map((t) => t.title).filter(Boolean))
+    new Set(availableTasks.map((t) => t.title).filter(Boolean))
   );
 
   return (
     <>
       <Navbar />
-      <div className="dashboard-container" style={{ maxWidth: "1200px", width: "100%", margin: "0 auto", padding: "120px 24px 60px 24px", boxSizing: "border-box" }}>
-        {/* 🟢 SIDEBAR ADMIN */}
+      <div 
+        className="dashboard-container" 
+        style={{ 
+          maxWidth: "1360px", 
+          width: "100%", 
+          margin: "0 auto", 
+          padding: "120px 32px 60px 32px", 
+          boxSizing: "border-box",
+          display: "flex",
+          gap: "24px",
+          alignItems: "flex-start"
+        }}
+      >
+        {/* SIDEBAR ADMIN */}
         <aside 
           className="task-sidebar" 
           style={{ 
+            width: "260px",
+            minWidth: "260px",
             display: "flex", 
             flexDirection: "column", 
             position: "sticky", 
@@ -546,14 +711,14 @@ export default function AdminPage() {
                 minHeight: "38px",
                 marginBottom: "10px", 
                 background: "transparent", 
-                border: "1px solid #FF3333", 
+                border: "2px solid #FF3333", 
                 padding: "6px 12px", 
                 borderRadius: "20px", 
                 display: "inline-flex", 
                 alignItems: "center", 
                 gap: "6px" 
               }}>
-                <ShieldAlert size={13} style={{ color: "#FF3333" }} />
+                <ShieldAlert size={0} style={{ color: "#FF3333" }} />
                 <span style={{ fontSize: "11px", color: "#FF3333", fontWeight: 700, textTransform: "uppercase" }}>
                   {userNama || "ADMIN UTAMA"}
                 </span>
@@ -563,20 +728,21 @@ export default function AdminPage() {
             </div>
 
             <div className="sidebar-menu">
-              <button type="button" className={`sidebar-btn ${activeTab === "rekap" ? "active" : ""}`} onClick={() => setActiveTab("rekap")}>📊 REKAP PENGUMPULAN</button>
-              <button type="button" className={`sidebar-btn ${activeTab === "presensi" ? "active" : ""}`} onClick={() => setActiveTab("presensi")}>✅ INPUT PRESENSI</button>
-              <button type="button" className={`sidebar-btn ${activeTab === "evaluasi" ? "active" : ""}`} onClick={() => setActiveTab("evaluasi")}>🎓 EVALUASI AKHIR</button>
-              <button type="button" className={`sidebar-btn ${activeTab === "tugas" ? "active" : ""}`} onClick={() => setActiveTab("tugas")}>➕ TAMBAH TUGAS</button>
-              <button type="button" className={`sidebar-btn ${activeTab === "pengumuman" ? "active" : ""}`} onClick={() => setActiveTab("pengumuman")}>📢 BUAT PENGUMUMAN</button>
-              <button type="button" className={`sidebar-btn ${activeTab === "manage" ? "active" : ""}`} onClick={() => setActiveTab("manage")} style={{ color: "#FF3333" }}>⚙️ KELOLA ARSIP DATA</button>
-              <a href="/penugasan" className="sidebar-btn" style={{ marginTop: "15px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)", color: "#FAFAFA", textAlign: "center", textDecoration: "none", display: "block" }}>👁️ TAMPILAN MAHASISWA</a>
+              <button type="button" className={`sidebar-btn ${activeTab === "rekap" ? "active" : ""}`} onClick={() => setActiveTab("rekap")}>REKAP PENGUMPULAN</button>
+              <button type="button" className={`sidebar-btn ${activeTab === "presensi" ? "active" : ""}`} onClick={() => setActiveTab("presensi")}>INPUT PRESENSI</button>
+              <button type="button" className={`sidebar-btn ${activeTab === "evaluasi" ? "active" : ""}`} onClick={() => setActiveTab("evaluasi")}>EVALUASI AKHIR</button>
+              <button type="button" className={`sidebar-btn ${activeTab === "tugas" ? "active" : ""}`} onClick={() => setActiveTab("tugas")}>TAMBAH TUGAS</button>
+              <button type="button" className={`sidebar-btn ${activeTab === "pengumuman" ? "active" : ""}`} onClick={() => setActiveTab("pengumuman")}>BUAT PENGUMUMAN</button>
+              <button type="button" className={`sidebar-btn ${activeTab === "manage" ? "active" : ""}`} onClick={() => setActiveTab("manage")} style={{ color: "#FF3333" }}>KELOLA ARSIP DATA</button>
+              <a href="/penugasan" className="sidebar-btn" style={{ marginTop: "15px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)", color: "#FAFAFA", textAlign: "center", textDecoration: "none", display: "block" }}>TAMPILAN MAHASISWA</a>
             </div>
           </div>
         </aside>
 
-        <main className="task-main-content">
+        {/* MAIN CONTENT AREA */}
+        <main className="task-main-content" style={{ flex: 1, minWidth: 0 }}>
           {activeTab === "rekap" && (
-            <div className="clickable-task-card" style={{ cursor: "default", padding: "16px" }}>
+            <div className="clickable-task-card" style={{ cursor: "default", padding: "20px", width: "100%", boxSizing: "border-box" }}>
               <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "15px" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -587,10 +753,10 @@ export default function AdminPage() {
                   </div>
                   
                   <div style={{ display: "flex", gap: "6px" }}>
-                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "rgba(0, 255, 136, 0.12)", border: "1px solid #00FF88", color: "#00FF88", whiteSpace: "nowrap" }}>
+                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "transparent", border: "1px solid #00FF88", color: "#00FF88", whiteSpace: "nowrap" }}>
                       Tepat Waktu: {countOntime}
                     </span>
-                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "rgba(255, 51, 51, 0.15)", border: "1px solid #FF3333", color: "#FF3333", whiteSpace: "nowrap" }}>
+                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "transparent", border: "1px solid #FF3333", color: "#FF3333", whiteSpace: "nowrap" }}>
                       Terlambat: {countLate}
                     </span>
                   </div>
@@ -601,8 +767,11 @@ export default function AdminPage() {
                   
                   <select 
                     value={filterCategory} 
-                    onChange={(e: any) => setFilterCategory(e.target.value)} 
-                    style={{ flex: 1, minWidth: "130px", background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "8px 10px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, outline: "none" }}
+                    onChange={(e: any) => {
+                      setFilterCategory(e.target.value);
+                      setFilterTaskTitle("all");
+                    }} 
+                    style={{ flex: 1, minWidth: "120px", background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "8px 10px", borderRadius: "50px", fontSize: "12px", fontWeight: 600, outline: "none" }}
                   >
                     <option value="all">Semua Kategori</option>
                     <option value="individu">Tugas Individu</option>
@@ -613,7 +782,7 @@ export default function AdminPage() {
                   <select 
                     value={filterTaskTitle} 
                     onChange={(e: any) => setFilterTaskTitle(e.target.value)} 
-                    style={{ flex: 1.2, minWidth: "150px", background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "8px 10px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, outline: "none" }}
+                    style={{ flex: 1.2, minWidth: "140px", background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "8px 10px", borderRadius: "50px", fontSize: "12px", fontWeight: 600, outline: "none" }}
                   >
                     <option value="all">Semua Judul Tugas</option>
                     {uniqueTaskTitles.map((title, idx) => (
@@ -624,11 +793,22 @@ export default function AdminPage() {
                   </select>
 
                   <select 
+                    value={filterKelompok} 
+                    onChange={(e: any) => setFilterKelompok(e.target.value)} 
+                    style={{ flex: 1, minWidth: "130px", background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "8px 10px", borderRadius: "50px", fontSize: "12px", fontWeight: 600, outline: "none" }}
+                  >
+                    <option value="all">Semua Kelompok</option>
+                    {listKelompok.map((kel) => (
+                      <option key={kel} value={kel}>{kel}</option>
+                    ))}
+                  </select>
+
+                  <select 
                     value={filterLateStatus} 
                     onChange={(e: any) => setFilterLateStatus(e.target.value)} 
-                    style={{ flex: 1, minWidth: "130px", background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "8px 10px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, outline: "none" }}
+                    style={{ flex: 1, minWidth: "120px", background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "8px 10px", borderRadius: "50px", fontSize: "12px", fontWeight: 600, outline: "none" }}
                   >
-                    <option value="all">Semua Status ({filteredSubmissions.length})</option>
+                    <option value="all">Status ({filteredSubmissions.length})</option>
                     <option value="ontime">Tepat Waktu</option>
                     <option value="late">Terlambat</option>
                   </select>
@@ -637,52 +817,90 @@ export default function AdminPage() {
 
               <div className="detail-divider" style={{ marginBottom: "15px" }} />
 
-              <div className="desktop-rekap-table" style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", color: "#FAFAFA", borderCollapse: "collapse", fontSize: "13px" }}>
+              <div className="desktop-rekap-table" style={{ width: "100%", overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
                   <thead>
-                    <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#fafafa", textAlign: "left" }}>
-                      <th style={{ padding: "10px" }}>NIM</th>
-                      <th style={{ padding: "10px" }}>NAMA</th>
-                      <th style={{ padding: "10px" }}>JUDUL TUGAS</th>
-                      <th style={{ padding: "10px" }}>WAKTU</th>
-                      <th style={{ padding: "10px" }}>STATUS</th>
-                      <th style={{ padding: "10px" }}>VALIDASI PENUGASAN</th>
+                    <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#fafafa", textAlign: "left", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                      <th style={{ padding: "12px 10px" }}>NIM</th>
+                      <th style={{ padding: "12px 10px" }}>NAMA</th>
+                      <th style={{ padding: "12px 10px" }}>KELOMPOK</th>
+                      <th style={{ padding: "12px 10px" }}>JUDUL TUGAS</th>
+                      <th style={{ padding: "12px 10px" }}>WAKTU PENGUMPULAN</th>
+                      <th style={{ padding: "12px 10px" }}>BERKAS</th>
+                      <th style={{ padding: "12px 10px", textAlign: "right" }}>VALIDASI</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredSubmissions.length === 0 ? (
-                      <tr><td colSpan={6} style={{ padding: "20px", textAlign: "center", color: "#666" }}>Tidak ada data yang sesuai filter.</td></tr>
+                      <tr><td colSpan={7} style={{ padding: "24px", textAlign: "center", color: "#666" }}>Tidak ada data yang sesuai filter.</td></tr>
                     ) : (
-                      filteredSubmissions.map((sub, i) => (
-                        <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                          <td style={{ padding: "10px", fontFamily: "monospace", fontWeight: "bold", color: sub.isLate ? "#FF3333" : "#00FF88" }}>{sub.user_nim}</td>
-                          <td style={{ padding: "10px", color: "#FAFAFA" }}>{sub.displayNama}</td>
-                          <td style={{ padding: "10px", fontWeight: 600 }}>{sub.task_title}</td>
-                          <td style={{ padding: "10px", color: sub.isLate ? "#FF3333" : "#aaa" }}>{new Date(sub.submitted_at).toLocaleString("id-ID")}</td>
-                          <td style={{ padding: "10px" }}>
-                            {sub.isLate ? (
-                              <span style={{ background: "rgba(255,51,51,0.15)", border: "1px solid #FF3333", color: "#FF3333", padding: "3px 8px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap" }}>TERLAMBAT</span>
-                            ) : (
-                              <span style={{ background: "rgba(0,255,136,0.12)", border: "1px solid #00FF88", color: "#00FF88", padding: "3px 8px", borderRadius: "50px", fontSize: "10px", fontWeight: 800, whiteSpace: "nowrap" }}>TEPAT WAKTU</span>
-                            )}
-                          </td>
-                          <td style={{ padding: "10px" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-                              <a href={sub.viewUrl} target="_blank" rel="noreferrer" style={{ color: "#00FF88", display: "inline-flex", alignItems: "center", gap: "5px", textDecoration: "none", fontWeight: 600 }}>
-                                <Eye size={14} /> View Berkas
+                      filteredSubmissions.map((sub, i) => {
+                        const options = getTaskPointOptions(sub.category, sub.task_title);
+                        const currentPoints = sub.is_validated ? (sub.awarded_points || 0) : 0;
+                        const rowColor = sub.isLate ? "#FF3333" : "#00FF88";
+
+                        return (
+                          <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                            <td style={{ padding: "12px 10px", fontFamily: "monospace", fontWeight: "bold", color: rowColor, whiteSpace: "nowrap" }}>
+                              {sub.user_nim}
+                            </td>
+                            <td style={{ padding: "12px 10px", fontWeight: 600, color: rowColor, whiteSpace: "nowrap" }}>
+                              {sub.displayNama}
+                            </td>
+                            <td style={{ padding: "12px 10px", fontWeight: 600, color: rowColor, whiteSpace: "nowrap" }}>
+                              {sub.kelompok || "-"}
+                            </td>
+                            <td style={{ padding: "12px 10px", fontWeight: 600, color: rowColor }}>
+                              {sub.task_title}
+                            </td>
+                            <td style={{ padding: "12px 10px", color: rowColor, fontSize: "12px", whiteSpace: "nowrap" }}>
+                              {formatDateTimeWIB(sub.submitted_at)} WIB
+                            </td>
+                            <td style={{ padding: "12px 10px", whiteSpace: "nowrap" }}>
+                              <a 
+                                href={sub.viewUrl} 
+                                target="_blank" 
+                                rel="noreferrer" 
+                                style={{ 
+                                  color: rowColor, 
+                                  display: "inline-flex", 
+                                  alignItems: "center", 
+                                  gap: "4px", 
+                                  textDecoration: "none", 
+                                  fontWeight: 700, 
+                                  fontSize: "12px" 
+                                }}
+                              >
+                                <Eye size={13} style={{ color: rowColor }} /> View
                               </a>
-                              <label style={{ display: "inline-flex", alignItems: "center", gap: "5px", cursor: "pointer", fontSize: "11px", color: sub.is_validated ? "#00FF88" : "#aaa", fontWeight: 600 }}>
-                                <input 
-                                  type="checkbox" 
-                                  checked={!!sub.is_validated} 
-                                  onChange={() => handleValidationToggle(sub.id, !!sub.is_validated, sub.task_points, sub.user_nim)}
-                                  style={{ width: "16px", height: "16px", accentColor: "#00FF88", cursor: "pointer" }} 
-                                />
-                              </label>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
+                            </td>
+                            <td style={{ padding: "12px 10px", textAlign: "right", whiteSpace: "nowrap" }}>
+                              <select
+                                value={currentPoints}
+                                onChange={(e) => handleTaskPointOptionChange(sub.id, sub.user_nim, Number(e.target.value))}
+                                style={{
+                                  background: "#0a0a0a",
+                                  border: `1px solid ${currentPoints > 0 ? rowColor : "#333"}`,
+                                  color: currentPoints > 0 ? rowColor : "#888",
+                                  padding: "6px 10px",
+                                  borderRadius: "50px",
+                                  fontSize: "11.5px",
+                                  fontWeight: 600,
+                                  outline: "none",
+                                  cursor: "pointer",
+                                  width: "165px"
+                                }}
+                              >
+                                {options.map((opt, idx) => (
+                                  <option key={idx} value={opt.points} style={{ color: opt.points > 0 ? "#00FF88" : "#FF3333" }}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -691,7 +909,7 @@ export default function AdminPage() {
           )}
 
           {activeTab === "presensi" && (
-            <div className="clickable-task-card" style={{ cursor: "default", padding: "16px" }}>
+            <div className="clickable-task-card" style={{ cursor: "default", padding: "20px", width: "100%", boxSizing: "border-box" }}>
               <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "15px" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -702,22 +920,22 @@ export default function AdminPage() {
                   </div>
 
                   <div style={{ display: "flex", gap: "6px" }}>
-                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "rgba(0, 255, 136, 0.12)", border: "1px solid #00FF88", color: "#00FF88", whiteSpace: "nowrap" }}>
+                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "transparent", border: "1px solid #00FF88", color: "#00FF88", whiteSpace: "nowrap" }}>
                       Hadir: ({countPresent})
                     </span>
-                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "rgba(255, 51, 51, 0.15)", border: "1px solid #FF3333", color: "#FF3333", whiteSpace: "nowrap" }}>
+                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "transparent", border: "1px solid #FF3333", color: "#FF3333", whiteSpace: "nowrap" }}>
                       Tidak Hadir: ({countAbsent})
                     </span>
                   </div>
                 </div>
 
-                <div style={{ display: "flex", alignItems: "flex-end", gap: "12px", width: "100%", flexWrap: "wrap", marginTop: "10px" }}>
-                  <div style={{ flex: 2, display: "flex", flexDirection: "column", gap: "4px" }}>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: "10px", width: "100%", flexWrap: "wrap", marginTop: "10px" }}>
+                  <div style={{ flex: 1.5, minWidth: "160px", display: "flex", flexDirection: "column", gap: "4px" }}>
                     <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Pilih Sesi Kehadiran:</label>
                     <select 
                       value={selectedSession} 
                       onChange={(e) => setSelectedSession(e.target.value)} 
-                      style={{ background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "10px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, outline: "none", width: "100%" }}
+                      style={{ background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "10px", borderRadius: "50px", fontSize: "13px", fontWeight: 600, outline: "none", width: "100%" }}
                     >
                       <option value="pra-inisialisasi">Pra-Inisialisasi</option>
                       <option value="inisialisasi-day1">Inisialisasi Day 1</option>
@@ -728,14 +946,28 @@ export default function AdminPage() {
                     </select>
                   </div>
 
-                  <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "4px" }}>
-                    <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Poin Kehadiran Sesi Ini:</label>
+                  <div style={{ flex: 1.2, minWidth: "140px", display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Filter Kelompok:</label>
+                    <select 
+                      value={filterAttendanceKelompok} 
+                      onChange={(e: any) => setFilterAttendanceKelompok(e.target.value)} 
+                      style={{ background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "10px", borderRadius: "50px", fontSize: "13px", fontWeight: 600, outline: "none", width: "100%" }}
+                    >
+                      <option value="all">Semua Kelompok</option>
+                      {listKelompok.map((kel) => (
+                        <option key={kel} value={kel}>{kel}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ flex: 1, minWidth: "130px", display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Poin Kehadiran:</label>
                     <input 
                       type="number" 
-                      placeholder="Masukkan poin..."
+                      placeholder="Default: 375"
                       value={sessionPoints} 
                       onChange={(e) => setSessionPoints(e.target.value === "" ? "" : Number(e.target.value))} 
-                      style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, width: "100%" }} 
+                      style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "50px", fontSize: "13px", fontWeight: 600, width: "100%" }} 
                     />
                   </div>
 
@@ -743,18 +975,18 @@ export default function AdminPage() {
                     <button 
                       type="button"
                       onClick={handleSaveSessionPoints}
-                      style={{ background: "transparent", border: "2px solid #1B22A7", color: "#fafafa", padding: "10px 16px", borderRadius: "8px", fontSize: "12px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+                      style={{ background: "transparent", border: "1px solid #fafafa", color: "#fafafa", padding: "10px 16px", borderRadius: "50px", fontSize: "12px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
                     >
-                      Simpan Poin Sesi
+                      Simpan Poin
                     </button>
                   </div>
 
-                  <div style={{ flex: 1.5, display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <div style={{ flex: 1.2, minWidth: "140px", display: "flex", flexDirection: "column", gap: "4px" }}>
                     <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Filter Status:</label>
                     <select 
                       value={filterAttendanceStatus} 
                       onChange={(e: any) => setFilterAttendanceStatus(e.target.value)} 
-                      style={{ background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "10px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, outline: "none", width: "100%" }}
+                      style={{ background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "10px", borderRadius: "50px", fontSize: "13px", fontWeight: 600, outline: "none", width: "100%" }}
                     >
                       <option value="all">Semua Mahasiswa ({students.length})</option>
                       <option value="present">Hadir ({countPresent})</option>
@@ -766,25 +998,30 @@ export default function AdminPage() {
 
               <div className="detail-divider" style={{ marginBottom: "15px" }} />
 
-              <div style={{ overflowX: "auto" }}>
+              <div style={{ width: "100%", overflowX: "auto" }}>
                 <table style={{ width: "100%", color: "#FAFAFA", borderCollapse: "collapse", fontSize: "13px" }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#fafafa", textAlign: "left" }}>
                       <th style={{ padding: "10px" }}>NIM</th>
                       <th style={{ padding: "10px" }}>NAMA MAHASISWA</th>
+                      <th style={{ padding: "10px" }}>KELOMPOK</th>
                       <th style={{ padding: "10px", textAlign: "center" }}>STATUS KEHADIRAN (CEKLIS)</th>
+                      <th style={{ padding: "10px", textAlign: "left" }}>POIN PRESENSI (DROPDOWN)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredStudents.length === 0 ? (
-                      <tr><td colSpan={3} style={{ padding: "20px", textAlign: "center", color: "#666" }}>Tidak ada data mahasiswa yang sesuai filter.</td></tr>
+                      <tr><td colSpan={5} style={{ padding: "20px", textAlign: "center", color: "#666" }}>Tidak ada data mahasiswa yang sesuai filter.</td></tr>
                     ) : (
                       filteredStudents.map((stu, i) => {
                         const isPresent = !!attendanceRecords[stu.nim];
+                        const currentPoints = attendancePointsMap[stu.nim] ?? (isPresent ? 375 : 0);
+
                         return (
                           <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
                             <td style={{ padding: "12px 10px", fontFamily: "monospace", fontWeight: "bold", color: "#00FF88" }}>{stu.nim}</td>
                             <td style={{ padding: "12px 10px", color: "#FAFAFA", fontWeight: 600 }}>{stu.nama}</td>
+                            <td style={{ padding: "12px 10px", color: "#FAFAFA", fontWeight: 600 }}>{stu.kelompok || "-"}</td>
                             <td style={{ padding: "12px 10px", textAlign: "center" }}>
                               <label style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
                                 <input 
@@ -794,6 +1031,31 @@ export default function AdminPage() {
                                   style={{ width: "18px", height: "18px", accentColor: "#00FF88", cursor: "pointer" }} 
                                 />
                               </label>
+                            </td>
+                            <td style={{ padding: "12px 10px" }}>
+                              <select
+                                value={currentPoints}
+                                onChange={(e) => handleAttendancePointsChange(stu.nim, Number(e.target.value))}
+                                style={{
+                                  background: "#0a0a0a",
+                                  border: "1px solid #333",
+                                  color: currentPoints > 0 ? "#00FF88" : "#FF3333",
+                                  padding: "6px 12px",
+                                  borderRadius: "8px",
+                                  fontSize: "12px",
+                                  fontWeight: 600,
+                                  outline: "none",
+                                  cursor: "pointer",
+                                  minWidth: "240px"
+                                }}
+                              >
+                                <option value={375} style={{ color: "#00FF88" }}>Hadir tepat waktu (+375 poin)</option>
+                                <option value={365} style={{ color: "#00FF88" }}>Terlambat 5–15 menit (+365 poin)</option>
+                                <option value={355} style={{ color: "#00FF88" }}>Terlambat &gt; 15 menit (+355 poin)</option>
+                                <option value={150} style={{ color: "#00FF88" }}>Sakit dengan izin (+150 poin)</option>
+                                <option value={150} style={{ color: "#00FF88" }}>Izin dengan keterangan (+150 poin)</option>
+                                <option value={0} style={{ color: "#FF3333" }}>Tidak hadir tanpa izin (0 poin)</option>
+                              </select>
                             </td>
                           </tr>
                         );
@@ -806,7 +1068,7 @@ export default function AdminPage() {
           )}
 
           {activeTab === "evaluasi" && (
-            <div className="clickable-task-card" style={{ cursor: "default", padding: "16px" }}>
+            <div className="clickable-task-card" style={{ cursor: "default", padding: "20px", width: "100%", boxSizing: "border-box" }}>
               <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "15px" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -816,59 +1078,107 @@ export default function AdminPage() {
                     </h3>
                   </div>
 
-                  <div style={{ display: "flex", gap: "6px" }}>
-                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "rgba(0, 255, 136, 0.12)", border: "1px solid #00FF88", color: "#00FF88", whiteSpace: "nowrap" }}>
-                      Memenuhi: ({countCompleteEval})
+                  <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
+                    <button 
+                      type="button"
+                      onClick={handleAutoGraduateByThreshold}
+                      disabled={loading}
+                      style={{
+                        background: "transparent",
+                        border: "1px solid #fafafa",
+                        color: "#fafafa",
+                        padding: "3px 8px",
+                        borderRadius: "50px",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "5px"
+                      }}
+                    >
+                      ⚡ Tombol Otomatis Luluskan (&ge; {GRADUATION_THRESHOLD})
+                    </button>
+
+                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "transparent", border: "1px solid #00FF88", color: "#00FF88", whiteSpace: "nowrap" }}>
+                      Memenuhi (&ge; {GRADUATION_THRESHOLD}): ({countCompleteEval})
                     </span>
-                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "rgba(255, 51, 51, 0.15)", border: "1px solid #FF3333", color: "#FF3333", whiteSpace: "nowrap" }}>
-                      Belum Memenuhi: ({countIncompleteEval})
+                    <span style={{ fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "50px", background: "transparent", border: "1px solid #FF3333", color: "#FF3333", whiteSpace: "nowrap" }}>
+                      Belum Memenuhi (&lt; {GRADUATION_THRESHOLD}): ({countIncompleteEval})
                     </span>
                   </div>
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", marginTop: "10px" }}>
-                  <p style={{ fontSize: "12.5px", color: "rgba(250,250,250,0.6)", margin: 0, flex: 1 }}>
-                    Centang kotak pada baris mahasiswa yang dinyatakan <strong>Lulus & Dikukuhkan</strong> setelah Day 4. Jika dibiarkan kosong, status mahasiswa akan menjadi <strong>Tidak Lulus</strong>.
+                  <p style={{ fontSize: "12.5px", color: "rgba(250,250,250,0.6)", margin: 0, flex: 1, minWidth: "220px" }}>
+                    Syarat minimal kelulusan adalah <strong>{GRADUATION_THRESHOLD} Poin</strong>. Gunakan dropdown filter di samping untuk memilih tampilan data mahasiswa.
                   </p>
 
-                  <div style={{ width: "260px", display: "flex", flexDirection: "column", gap: "4px" }}>
-                    <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Filter Poin Mahasiswa:</label>
-                    <select 
-                      value={filterEvalPoints} 
-                      onChange={(e: any) => setFilterEvalPoints(e.target.value)} 
-                      style={{ background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "10px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, outline: "none", width: "100%" }}
-                    >
-                      <option value="all">Semua Mahasiswa ({students.length})</option>
-                      <option value="complete">Memenuhi 300/300 ({countCompleteEval})</option>
-                      <option value="incomplete">Belum Memenuhi ({countIncompleteEval})</option>
-                    </select>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                    {/* Filter Kelompok di Tab Evaluasi */}
+                    <div style={{ width: "170px", display: "flex", flexDirection: "column", gap: "4px" }}>
+                      <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Filter Kelompok:</label>
+                      <select 
+                        value={filterEvalKelompok} 
+                        onChange={(e: any) => setFilterEvalKelompok(e.target.value)} 
+                        style={{ background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "10px", borderRadius: "50px", fontSize: "13px", fontWeight: 600, outline: "none", width: "100%", cursor: "pointer" }}
+                      >
+                        <option value="all">Semua Kelompok</option>
+                        {listKelompok.map((kel) => (
+                          <option key={kel} value={kel}>{kel}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Filter Status Poin di Tab Evaluasi */}
+                    <div style={{ width: "230px", display: "flex", flexDirection: "column", gap: "4px" }}>
+                      <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Filter Poin:</label>
+                      <select 
+                        value={filterEvalPoints} 
+                        onChange={(e: any) => setFilterEvalPoints(e.target.value)} 
+                        style={{ background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "10px", borderRadius: "50px", fontSize: "13px", fontWeight: 600, outline: "none", width: "100%", cursor: "pointer" }}
+                      >
+                        <option value="all">Semua Mahasiswa ({scopedEvaluationStudents.length})</option>
+                        <option value="complete">Memenuhi Syarat (&ge; {GRADUATION_THRESHOLD}) - ({countCompleteEval})</option>
+                        <option value="incomplete">Belum Memenuhi (&lt; {GRADUATION_THRESHOLD}) - ({countIncompleteEval})</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
               </div>
 
               <div className="detail-divider" style={{ marginBottom: "15px" }} />
 
-              <div style={{ overflowX: "auto" }}>
+              <div style={{ width: "100%", overflowX: "auto" }}>
                 <table style={{ width: "100%", color: "#FAFAFA", borderCollapse: "collapse", fontSize: "13px" }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#fafafa", textAlign: "left" }}>
                       <th style={{ padding: "10px" }}>NIM</th>
                       <th style={{ padding: "10px" }}>NAMA MAHASISWA</th>
+                      <th style={{ padding: "10px" }}>KELOMPOK</th>
                       <th style={{ padding: "10px", textAlign: "center" }}>TOTAL POIN</th>
                       <th style={{ padding: "10px", textAlign: "center" }}>STATUS KELULUSAN</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredEvaluationStudents.length === 0 ? (
-                      <tr><td colSpan={4} style={{ padding: "20px", textAlign: "center", color: "#666" }}>Tidak ada data mahasiswa yang sesuai filter.</td></tr>
+                      <tr><td colSpan={5} style={{ padding: "20px", textAlign: "center", color: "#666" }}>Tidak ada data mahasiswa yang sesuai filter.</td></tr>
                     ) : (
                       filteredEvaluationStudents.map((stu, i) => {
                         const isGraduated = !!stu.is_graduated;
+                        const points = stu.total_points || 0;
+                        const meetsThreshold = points >= GRADUATION_THRESHOLD;
+
                         return (
                           <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
                             <td style={{ padding: "12px 10px", fontFamily: "monospace", fontWeight: "bold", color: "#00FF88" }}>{stu.nim}</td>
                             <td style={{ padding: "12px 10px", color: "#FAFAFA", fontWeight: 600 }}>{stu.nama}</td>
-                            <td style={{ padding: "12px 10px", textAlign: "center", fontWeight: "bold", color: "#00FF88" }}>{stu.total_points || 0} / 300</td>
+                            <td style={{ padding: "12px 10px", color: "#FAFAFA", fontWeight: 600 }}>{stu.kelompok || "-"}</td>
+                            <td style={{ padding: "12px 10px", textAlign: "center" }}>
+                              <span style={{ fontWeight: "bold", color: meetsThreshold ? "#00FF88" : "#FF3333" }}>
+                                {points} Poin
+                              </span>
+                            </td>
                             <td style={{ padding: "12px 10px", textAlign: "center" }}>
                               <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "12px", color: isGraduated ? "#00FF88" : "#FF3333", fontWeight: 700 }}>
                                 <input 
@@ -901,15 +1211,30 @@ export default function AdminPage() {
                 <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>ID Tugas</label><input type="text" placeholder="Contoh: individu-2" value={taskId} onChange={(e) => setTaskId(e.target.value)} required style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
                 <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Kategori</label><select value={taskCategory} onChange={(e) => setTaskCategory(e.target.value)} style={{ background: "#0a0a0a", border: "1.5px solid #1B22A7", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }}><option value="individu">Individu</option><option value="kelompok">Kelompok</option><option value="angkatan">Angkatan</option></select></div>
                 <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Judul</label><input type="text" placeholder="Judul..." value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} required style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
-                <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Ketentuan (klik enter untuk ketentuan selanjutnya)</label><textarea rows={4} placeholder="Ketentuan..." value={taskRules} onChange={(e) => setTaskRules(e.target.value)} required style={{ background: "#0a0a0a", border: "1.5px solid #1B22A7", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
+                
+                <div className="input-group">
+                  <label style={{ fontSize: "12px", color: "#aaa" }}>Ketentuan Tugas (Tulis sebagai paragraf / penjelasan bebas)</label>
+                  <textarea rows={6} placeholder="Tulis rincian ketentuan penugasan..." value={taskRules} onChange={(e) => setTaskRules(e.target.value)} required style={{ background: "#0a0a0a", border: "1.5px solid #1B22A7", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} />
+                </div>
                 
                 <div className="input-group">
                   <label style={{ fontSize: "12px", color: "#aaa" }}>Poin yang akan didapatkan</label>
                   <input type="number" placeholder="Contoh: 10" value={taskPoints} onChange={(e) => setTaskPoints(e.target.value === "" ? "" : Number(e.target.value))} required style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} />
                 </div>
 
-                <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Deadline</label><input type="datetime-local" value={taskDeadline} onChange={(e) => setTaskDeadline(e.target.value)} required style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
-                <button type="submit" className="btn-auth-submit" disabled={loading} style={{ marginTop: "10px", padding: "12px", background: "#00FF88", color: "#000", fontWeight: 700, border: "none", borderRadius: "8px", cursor: "pointer" }}>{loading ? "MENYIMPAN..." : "TERBITKAN TUGAS"}</button>
+                {/* 🟢 Input Deadline Tambah Tugas dengan step="1" untuk menampilkan detik */}
+                <div className="input-group">
+                  <label style={{ fontSize: "12px", color: "#aaa" }}>Deadline</label>
+                  <input 
+                    type="datetime-local" 
+                    step="1"
+                    value={taskDeadline} 
+                    onChange={(e) => setTaskDeadline(e.target.value)} 
+                    required 
+                    style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} 
+                  />
+                </div>
+                <button type="submit" className="btn-auth-submit" disabled={loading} style={{ marginTop: "10px", padding: "12px", background: "#00FF88", color: "#00FF88", fontWeight: 700, border: "none", borderRadius: "8px", cursor: "pointer" }}>{loading ? "MENYIMPAN..." : "TERBITKAN TUGAS"}</button>
               </form>
             </div>
           )}
@@ -924,7 +1249,7 @@ export default function AdminPage() {
               <form onSubmit={handleAddAnnouncement} className="auth-form" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Judul</label><input type="text" placeholder="Judul..." value={annTitle} onChange={(e) => setAnnTitle(e.target.value)} required style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
                 <div className="input-group"><label style={{ fontSize: "12px", color: "#aaa" }}>Isi</label><textarea rows={6} placeholder="Isi..." value={annContent} onChange={(e) => setAnnContent(e.target.value)} required style={{ background: "#0a0a0a", border: "1.5px solid #1B22A7", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} /></div>
-                <button type="submit" className="btn-auth-submit" disabled={loading} style={{ marginTop: "10px", padding: "12px", background: "#00FF88", color: "#000", fontWeight: 700, border: "none", borderRadius: "8px", cursor: "pointer" }}>{loading ? "TERBITKAN..." : "TERBITKAN PENGUMUMAN"}</button>
+                <button type="submit" className="btn-auth-submit" disabled={loading} style={{ marginTop: "10px", padding: "12px", background: "#00FF88", color: "#00FF88", fontWeight: 700, border: "none", borderRadius: "8px", cursor: "pointer" }}>{loading ? "TERBITKAN..." : "TERBITKAN PENGUMUMAN"}</button>
               </form>
             </div>
           )}
@@ -943,13 +1268,14 @@ export default function AdminPage() {
                         <th style={{ padding: "10px" }}>KATEGORI</th>
                         <th style={{ padding: "10px" }}>JUDUL</th>
                         <th style={{ padding: "10px" }}>POIN</th>
+                        <th style={{ padding: "10px" }}>DEADLINE</th>
                         <th style={{ padding: "10px" }}>VISIBILITAS</th>
                         <th style={{ padding: "10px" }}>AKSI</th>
                       </tr>
                     </thead>
                     <tbody>
                       {tasks.length === 0 ? (
-                        <tr><td colSpan={6} style={{ padding: "15px", color: "#666" }}>Kosong.</td></tr>
+                        <tr><td colSpan={7} style={{ padding: "15px", color: "#666" }}>Kosong.</td></tr>
                       ) : (
                         tasks.map((t) => (
                           <tr key={t.id} style={{ borderBottom: "1px solid transparent" }}>
@@ -957,6 +1283,9 @@ export default function AdminPage() {
                             <td style={{ padding: "10px" }}>{t.category}</td>
                             <td style={{ padding: "10px" }}>{t.title}</td>
                             <td style={{ padding: "10px", color: "#fafafa", fontWeight: "bold" }}>+{t.points || 0}</td>
+                            <td style={{ padding: "10px", color: "#aaa", fontSize: "12px", whiteSpace: "nowrap" }}>
+                              {formatDateTimeWIB(t.deadline)} WIB
+                            </td>
                             
                             <td style={{ padding: "10px", whiteSpace: "nowrap" }}>
                               {t.is_active !== false ? (
@@ -973,10 +1302,15 @@ export default function AdminPage() {
                             <td style={{ padding: "10px", display: "flex", gap: "8px", whiteSpace: "nowrap" }}>
                               <button 
                                 onClick={() => { 
-                                  setEditTaskData({ ...t, rules: t.rules?.join("\n") || "", deadline: new Date(t.deadline).toISOString().slice(0, 16), points: t.points || 0 }); 
+                                  setEditTaskData({ 
+                                    ...t, 
+                                    rules: Array.isArray(t.rules) ? t.rules.join("\n") : (t.rules || ""), 
+                                    deadline: formatISOToInput(t.deadline), 
+                                    points: t.points || 0 
+                                  }); 
                                   setIsEditTaskModalOpen(true); 
                                 }} 
-                                style={{ background: "transparent", border: "1.5px solid #1B22A7", color: "#FAFAFA", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}
+                                style={{ background: "transparent", border: "1px solid #fafafa", color: "#FAFAFA", padding: "6px 12px", borderRadius: "50px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}
                               >
                                 <Pencil size={13} /> Edit
                               </button>
@@ -985,15 +1319,15 @@ export default function AdminPage() {
                                 onClick={() => handleToggleTaskStatus(t.id, t.is_active !== false)} 
                                 style={{ 
                                   background: t.is_active !== false ? "transparent" : "transparent", 
-                                  border: t.is_active !== false ? "1px solid #FAFAFA" : "1.5px solid #1B22A7", 
+                                  border: t.is_active !== false ? "1px solid #FAFAFA" : "1.5px solid #fafafa", 
                                   color: t.is_active !== false ? "#FAFAFA" : "#FAFAFA", 
                                   padding: "6px 12px", 
-                                  borderRadius: "6px", 
+                                  borderRadius: "50px", 
                                   cursor: "pointer",
                                   whiteSpace: "nowrap"
                                 }}
                               >
-                                {t.is_active !== false ? "🚫 Sembunyikan" : "👁️ Tampilkan"}
+                                {t.is_active !== false ? "Sembunyikan" : "Tampilkan"}
                               </button>
                             </td>
                           </tr>
@@ -1011,7 +1345,7 @@ export default function AdminPage() {
                 <div style={{ overflowX: "auto", marginTop: "15px" }}>
                   <table style={{ width: "100%", color: "#FAFAFA", borderCollapse: "collapse", fontSize: "13px" }}>
                     <thead>
-                      <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#FAFAFA", textAlign: "left" }}>
+                      <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "#fafafa", textAlign: "left" }}>
                         <th style={{ padding: "10px" }}>JUDUL</th>
                         <th style={{ padding: "10px" }}>TANGGAL</th>
                         <th style={{ padding: "10px" }}>VISIBILITAS</th>
@@ -1042,7 +1376,7 @@ export default function AdminPage() {
                             <td style={{ padding: "10px", display: "flex", gap: "8px", whiteSpace: "nowrap" }}>
                               <button 
                                 onClick={() => { setEditAnnData(a); setIsEditAnnModalOpen(true); }} 
-                                style={{ background: "transparent", border: "1.5px solid #1B22A7", color: "#FAFAFA", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}
+                                style={{ background: "transparent", border: "1px solid #fafafa", color: "#FAFAFA", padding: "6px 12px", borderRadius: "50px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}
                               >
                                 <Pencil size={13} /> Edit
                               </button>
@@ -1051,15 +1385,15 @@ export default function AdminPage() {
                                 onClick={() => handleToggleAnnStatus(a.id, a.title, a.is_active !== false)} 
                                 style={{ 
                                   background: a.is_active !== false ? "transparent" : "transparent", 
-                                  border: a.is_active !== false ? "1px solid #FAFAFA" : "1.5px solid #1B22A7", 
+                                  border: a.is_active !== false ? "1px solid #FAFAFA" : "1.5px solid #fafafa", 
                                   color: a.is_active !== false ? "#FAFAFA" : "#FAFAFA", 
                                   padding: "6px 12px", 
-                                  borderRadius: "6px", 
+                                  borderRadius: "50px", 
                                   cursor: "pointer",
                                   whiteSpace: "nowrap"
                                 }}
                               >
-                                {a.is_active !== false ? "🚫 Sembunyikan" : "👁️ Tampilkan"}
+                                {a.is_active !== false ? "Sembunyikan" : "Tampilkan"}
                               </button>
                             </td>
                           </tr>
@@ -1074,7 +1408,7 @@ export default function AdminPage() {
         </main>
       </div>
 
-      {/* 🟢 MODAL POP-UP EDIT TUGAS */}
+      {/* MODAL EDIT TUGAS */}
       {isEditTaskModalOpen && editTaskData && (
         <div className="modal-overlay active" style={{ zIndex: 999999 }}>
           <div className="modal-card" style={{ maxWidth: "500px", textAlign: "left" }} onClick={(e) => e.stopPropagation()}>
@@ -1108,9 +1442,9 @@ export default function AdminPage() {
               </div>
 
               <div className="input-group">
-                <label style={{ fontSize: "11px", color: "#aaa" }}>Ketentuan (klik enter untuk ketentuan selanjunya)</label>
+                <label style={{ fontSize: "11px", color: "#aaa" }}>Ketentuan Tugas (Paragraf Bebas)</label>
                 <textarea 
-                  rows={4} 
+                  rows={5} 
                   value={editTaskData.rules} 
                   onChange={(e) => setEditTaskData({ ...editTaskData, rules: e.target.value })} 
                   style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} 
@@ -1118,7 +1452,7 @@ export default function AdminPage() {
               </div>
 
               <div className="input-group">
-                <label style={{ fontSize: "11px", color: "#aaa" }}>Poin yang akan didapatkan</label>
+                <label style={{ fontSize: "11px", color: "#aaa" }}>Poin</label>
                 <input 
                   type="number" 
                   value={editTaskData.points} 
@@ -1127,10 +1461,12 @@ export default function AdminPage() {
                 />
               </div>
 
+              {/* 🟢 Input Deadline Edit Tugas dengan step="1" untuk menampilkan detik */}
               <div className="input-group">
                 <label style={{ fontSize: "11px", color: "#aaa" }}>Deadline</label>
                 <input 
                   type="datetime-local" 
+                  step="1"
                   value={editTaskData.deadline} 
                   onChange={(e) => setEditTaskData({ ...editTaskData, deadline: e.target.value })} 
                   style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} 
@@ -1148,7 +1484,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* 🟢 MODAL POP-UP EDIT PENGUMUMAN */}
+      {/* MODAL EDIT PENGUMUMAN */}
       {isEditAnnModalOpen && editAnnData && (
         <div className="modal-overlay active" style={{ zIndex: 999999 }}>
           <div className="modal-card" style={{ maxWidth: "500px", textAlign: "left" }} onClick={(e) => e.stopPropagation()}>
@@ -1179,7 +1515,7 @@ export default function AdminPage() {
               </div>
 
               <div style={{ display: "flex", gap: "10px", marginTop: "15px" }}>
-                <button type="button" onClick={handleSaveEditAnn} className="btn-modal-primary" disabled={loading} style={{ background: "#00FF88", color: "#000", fontWeight: 700 }}>
+                <button type="button" onClick={handleSaveEditAnn} className="btn-modal-primary" disabled={loading} style={{ background: "#00FF88", color: "#00FF88", fontWeight: 700 }}>
                   {loading ? "MENYIMPAN..." : "SIMPAN PERUBAHAN"}
                 </button>
                 <button type="button" onClick={() => setIsEditAnnModalOpen(false)} className="btn-modal-close">BATAL</button>
@@ -1189,7 +1525,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* 🟢 MODAL KONFIRMASI AKSI */}
+      {/* MODAL KONFIRMASI */}
       {confirmModal.isOpen && (
         <div className="modal-overlay active" style={{ zIndex: 9999999 }}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
@@ -1206,7 +1542,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* DYNAMIC ISLAND TOAST */}
+      {/* TOAST NOTIFIKASI */}
       <div style={{ position: "fixed", top: "110px", left: "50%", transform: "translateX(-50%)", zIndex: 99999999, pointerEvents: "none", display: "flex", justifyContent: "center", alignItems: "center" }}>
         <div style={{
           background: "#0a0a0e",
@@ -1216,15 +1552,14 @@ export default function AdminPage() {
           minWidth: toast.isExpanded ? "340px" : "48px",
           maxWidth: toast.isExpanded ? "480px" : "48px",
           padding: toast.isExpanded ? "0 18px 0 8px" : "0",
-          boxShadow: toast.isError ? "0 15px 35px rgba(255, 51, 51, 0.35), 0 0 15px rgba(255, 51, 51, 0.2)" : "0 15px 35px rgba(0, 255, 136, 0.35), 0 0 15px rgba(0, 255, 136, 0.2)",
+          boxShadow: toast.isError ? "0 15px 35px rgba(255, 51, 51, 0.35)" : "0 15px 35px rgba(0, 255, 136, 0.35)",
           display: "flex",
           alignItems: "center",
           justifyContent: toast.isExpanded ? "flex-start" : "center",
           backdropFilter: "blur(20px)",
-          WebkitBackdropFilter: "blur(20px)",
           boxSizing: "border-box",
           overflow: "hidden",
-          transition: toast.show && !toast.isExpanded ? "all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)" : "all 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)",
+          transition: "all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)",
           opacity: toast.show ? 1 : 0,
           transform: toast.show ? "scale(1)" : "scale(0.1)"
         }}>
@@ -1233,8 +1568,8 @@ export default function AdminPage() {
           </div>
           {toast.isExpanded && (
             <div style={{ display: "flex", flexDirection: "column", textAlign: "left", paddingLeft: "10px", whiteSpace: "nowrap", overflow: "hidden" }}>
-              <h4 style={{ margin: 0, fontSize: "12px", fontWeight: 800, color: toast.isError ? "#FF3333" : "#00FF88", letterSpacing: "0.6px", textTransform: "uppercase", lineHeight: "1.2" }}>{toast.message}</h4>
-              <p style={{ margin: "2px 0 0 0", fontSize: "11.5px", color: "rgba(250, 250, 250, 0.9)", lineHeight: "1.2" }}>{toast.subMessage}</p>
+              <h4 style={{ margin: 0, fontSize: "12px", fontWeight: 800, color: toast.isError ? "#FF3333" : "#00FF88", textTransform: "uppercase" }}>{toast.message}</h4>
+              <p style={{ margin: "2px 0 0 0", fontSize: "11.5px", color: "rgba(250, 250, 250, 0.9)" }}>{toast.subMessage}</p>
             </div>
           )}
         </div>

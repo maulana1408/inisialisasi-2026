@@ -161,13 +161,13 @@ export default function Home() {
                   <h3>Kehadiran & Ketertiban</h3>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">1</span><p>Peserta wajib datang ke tempat 30 menit sebelum acara dimulai.</p></div>
+                  <div className="point-left"><span className="num-bullet">1</span><p>Peserta diharapkan datang ke tempat 15 menit sebelum acara dimulai.</p></div>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">2</span><p>Peserta wajib memakai seragam sesuai ketentuan.</p></div>
+                  <div className="point-left"><span className="num-bullet">2</span><p>Peserta diharapkan memakai seragam sesuai ketentuan.</p></div>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">3</span><p>Peserta wajib memakai atribut dan ID card sesuai ketentuan.</p></div>
+                  <div className="point-left"><span className="num-bullet">3</span><p>Peserta diharapkan memakai atribut dan ID card sesuai ketentuan.</p></div>
                 </div>
                 <div className="point-row">
                   <div className="point-left"><span className="num-bullet">4</span><p>Peserta yang tidak memakai seragam dan atribut sesuai ketentuan akan dikenakan pengurangan poin.</p></div>
@@ -176,10 +176,10 @@ export default function Home() {
                   <div className="point-left"><span className="num-bullet">5</span><p>Peserta yang terlambat hadir akan dikenakan pengurangan poin sesuai ketentuan dan hukuman yang berlaku.</p></div>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">6</span><p>Peserta wajib untuk mengikuti semua kegiatan inisialisasi yang telah ditentukan.</p></div>
+                  <div className="point-left"><span className="num-bullet">6</span><p>Peserta diharapkan untuk mengikuti semua kegiatan inisialisasi yang telah ditentukan.</p></div>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">7</span><p>Kehadiran 80% dari setiap kelompok merupakan syarat minimal. Jika kehadiran anggota kelompok tidak mencapai 80%, maka akan dikenakan pengurangan poin, kecuali bagi mahasiswa yang sudah izin ke kakak pendamping bahwa tidak bisa mengikuti inisialisasi.</p></div>
+                  <div className="point-left"><span className="num-bullet">7</span><p>Kehadiran 80% dari setiap kelompok merupakan syarat minimal. Jika kehadiran anggota kelompok tidak mencapai 80% maka akan dikenakan pengurangan poin kecuali bagi mahasiswa yang sudah izin ke kakak pendamping bahwa tidak bisa mengikuti inisialisasi.</p></div>
                 </div>
               </div>
 
@@ -213,25 +213,25 @@ export default function Home() {
                   <h3>Kewajiban Peserta</h3>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">1</span><p>Peserta wajib untuk memperhatikan dan mencatat seluruh materi yang disampaikan selama kegiatan berlangsung di booklet yang sudah ditentukan.</p></div>
+                  <div className="point-left"><span className="num-bullet">1</span><p>Peserta diharapkan untuk memperhatikan dan mencatat seluruh materi yang disampaikan selama kegiatan berlangsung di booklet yang sudah ditentukan.</p></div>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">2</span><p>Peserta wajib menjaga kekondusifan selama materi berlangsung saat pemateri menyampaikan materi. Tidak diperkenankan untuk membahas hal yang diluar topik. Saat ingin bertanya, peserta diwajibkan meminta izin kepada pemateri dengan angkat tangan terlebih dahulu dan setelah diizinkan peserta diperbolehkan bertanya.</p></div>
+                  <div className="point-left"><span className="num-bullet">2</span><p>Peserta diharapkan menjaga kekondusifan selama materi berlangsung saat pemateri menyampaikan materi. Tidak diperkenankan untuk membahas hal yang diluar topik. Saat ingin bertanya, peserta diwajibkan meminta izin kepada pemateri dengan angkat tangan terlebih dahulu dan setelah diizinkan peserta diperbolehkan bertanya.</p></div>
                 </div>
                 <div className="point-row">
                   <div className="point-left"><span className="num-bullet">3</span><p>Peserta diperbolehkan ke kamar mandi di sela-sela rangkaian kegiatan dengan meminta izin terlebih dahulu kepada panitia/kakak pendamping, apabila sudah diizinkan peserta diperbolehkan ke kamar mandi.</p></div>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">4</span><p>Peserta wajib menyelesaikan penugasan yang telah diberikan sesuai waktu yang telah ditentukan. Apabila terlambat/tidak menyelesaikan penugasan, maka akan dikenakan pengurangan poin.</p></div>
+                  <div className="point-left"><span className="num-bullet">4</span><p>Peserta diharapkan menyelesaikan penugasan yang telah diberikan sesuai waktu yang telah ditentukan. Apabila terlambat/tidak menyelesaikan penugasan, maka akan dikenakan pengurangan poin.</p></div>
                 </div>
                 <div className="point-row">
                   <div className="point-left"><span className="num-bullet">5</span><p>Untuk mahasiswa baru yang berhalangan dan tidak bisa mengikuti rangkaian kegiatan diharapkan izin 3-4 hari sebelum acara dimulai kepada kakak pendamping dengan menyertakan alasannya.</p></div>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">6</span><p>Untuk mahasiswa baru yang sakit pada saat sebelum/saat acara Inisialisasi 2026 berlangsung, dihimbau untuk segera izin kepada kakak pendamping. Apabila tidak menghubungi kakak pendamping, maka akan dianggap tidak hadir.</p></div>
+                  <div className="point-left"><span className="num-bullet">6</span><p>Untuk mahasiswa baru yang berhalangan dan tidak bisa mengikuti rangkaian kegiatan diharapkan izin 3-4 hari sebelum acara dimulai kepada kakak pendamping dengan menyertakan alasannya.</p></div>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">7</span><p>Peserta wajib menjaga barang pribadinya, jika terdapat kehilangan bukan termasuk tanggung jawab panitia.</p></div>
+                  <div className="point-left"><span className="num-bullet">7</span><p>Peserta diharapkan menjaga barang pribadinya, jika terdapat kehilangan bukan termasuk tanggung jawab panitia.</p></div>
                 </div>
                 <div className="point-row">
                   <div className="point-left"><span className="num-bullet">8</span><p>Peserta dianjurkan membawa obat-obatan pribadi (apabila membutuhkan).</p></div>
@@ -299,7 +299,7 @@ export default function Home() {
                 </div>
                 <div className="point-row">
                   <div className="point-left">
-                    <p>Mahasiswa baru diwajibkan mengumpulkan minimal <strong>300 poin</strong> agar dapat lulus dan dikukuhkan.</p>
+                    <p>Mahasiswa baru diwajibkan mengumpulkan minimal <strong>3375 poin</strong> agar dapat lulus dan dikukuhkan.</p>
                   </div>
                 </div>
               </div>
@@ -325,19 +325,19 @@ export default function Home() {
                 </div>
                 <div className="point-row">
                   <div className="point-left"><span className="num-bullet">1</span><p>Terlambat 5-15 menit</p></div>
-                  <span className="minus-point">-5 poin</span>
+                  <span className="minus-point">-10 poin</span>
                 </div>
                 <div className="point-row">
                   <div className="point-left"><span className="num-bullet">2</span><p>Terlambat &gt; 15 menit</p></div>
+                  <span className="minus-point">-15 poin</span>
+                </div>
+                <div className="point-row">
+                  <div className="point-left"><span className="num-bullet">3</span><p>Terlambat mengumpulkan rangkuman &gt; 15 menit</p></div>
                   <span className="minus-point">-10 poin</span>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">3</span><p>Terlambat mengumpulkan resume &gt; 15 menit</p></div>
-                  <span className="minus-point">-5 poin</span>
-                </div>
-                <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">4</span><p>Tidak mengumpulkan resume</p></div>
-                  <span className="minus-point">-10 poin</span>
+                  <div className="point-left"><span className="num-bullet">4</span><p>Tidak mengumpulkan rangkuman</p></div>
+                  <span className="minus-point">-15 poin</span>
                 </div>
               </div>
 
@@ -348,16 +348,20 @@ export default function Home() {
                   <h3>Pelanggaran Selama Acara</h3>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">1</span><p>Seragam dan atribut tidak sesuai ketentuan</p></div>
-                  <span className="minus-point">-10 poin</span>
+                  <div className="point-left"><span className="num-bullet">1</span><p>Setiap ketidaksesuaian seragam atau atribut</p></div>
+                  <span className="minus-point">-15 poin</span>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">2</span><p>Membawa barang terlarang (senjata tajam, senjata api, rokok, vape, miras, obat-obatan terlarang)</p></div>
+                  <div className="point-left"><span className="num-bullet">2</span><p>Membawa gunting sebagai barang yang tidak diperbolehkan</p></div>
+                  <span className="minus-point">-5 poin</span>
+                </div>
+                <div className="point-row">
+                  <div className="point-left"><span className="num-bullet">3</span><p>Membawa senjata tajam, senjata api, rokok, vape beserta liquid-nya, minuman keras, atau obat-obatan terlarang (barang akan disita oleh pihak keamanan/panitia)</p></div>
                   <span className="minus-point">-100 poin</span>
                 </div>
                 <div className="point-row">
-                  <div className="point-left"><span className="num-bullet">3</span><p>Melakukan joki atau kecurangan lainnya dalam mengerjakan tugas</p></div>
-                  <span className="minus-point style-no-point">-Tidak dapat poin penugasan</span>
+                  <div className="point-left"><span className="num-bullet">4</span><p>Terbukti melakukan joki dalam pengerjaan tugas atau melakukan bentuk kecurangan serupa</p></div>
+                  <span className="minus-point">Tidak mendapatkan poin penugasan</span>
                 </div>
               </div>
             </div>
@@ -387,7 +391,7 @@ export default function Home() {
             <p>© 2026 Inisialisasi - D4 Teknik Informatika</p>
           </div>
           <div className="footer-right">
-            <a href="https://www.instagram.com/inisialisasi2025" target="_blank" rel="noreferrer" className="ig-link">
+            <a href="https://www.instagram.com/inisialisasi2026?utm_source=ig_web_button_share_sheet&stkn=ZDNlZDc0MzIxNw==" target="_blank" rel="noreferrer" className="ig-link">
               <svg className="footer-ig-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="20" x="2" y="2" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" x2="17.51" y1="6.5" y2="6.5"/></svg>
               INSTAGRAM INISIALISASI
             </a>

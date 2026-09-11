@@ -20,7 +20,8 @@ import {
   ExternalLink,
   Award,
   CheckCircle,
-  XCircle
+  XCircle,
+  Link2
 } from "lucide-react";
 
 export default function PenugasanPage() {
@@ -30,6 +31,10 @@ export default function PenugasanPage() {
   
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  
+  // Mode Pengumpulan: Berkas (file) atau Tautan (link)
+  const [submissionMode, setSubmissionMode] = useState<"file" | "link">("file");
+  const [submissionLink, setSubmissionLink] = useState<string>("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -43,6 +48,7 @@ export default function PenugasanPage() {
   const [userNama, setUserNama] = useState<string>("");
   const [userRole, setUserRole] = useState<string>("");
   const [userPoints, setUserPoints] = useState<number>(0);
+  const [userKelompok, setUserKelompok] = useState<string>("-");
   const [isGraduatedStatus, setIsGraduatedStatus] = useState<boolean>(false);
   const [graduationLabel, setGraduationLabel] = useState<string>("TIDAK LULUS");
   const [isLoaded, setIsLoaded] = useState(false);
@@ -75,6 +81,55 @@ export default function PenugasanPage() {
     }, 4200);
   };
 
+  // Helper konversi datetime-local agar tidak tergeser zona waktu UTC
+  const formatInputToISO = (datetimeLocalVal: string) => {
+    if (!datetimeLocalVal) return "";
+    const localDate = new Date(datetimeLocalVal);
+    return isNaN(localDate.getTime()) ? datetimeLocalVal : localDate.toISOString();
+  };
+
+  const formatISOToInput = (isoString: string) => {
+    if (!isoString) return "";
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return "";
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  };
+
+  // 🟢 Helper format waktu terkunci ke WIB dengan detik
+  const formatDateTimeWIB = (dateString: string) => {
+    if (!dateString) return "-";
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return dateString;
+
+    return d.toLocaleString("id-ID", {
+      timeZone: "Asia/Jakarta",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    }).replace(/\./g, ":");
+  };
+
+  const getKelompokStyle = (kelompokName: string) => {
+    switch (kelompokName?.toUpperCase()) {
+      case "LARAVEL": return { bg: "rgba(234, 179, 8, 0.15)", border: "#FFE599", color: "#FFE599" };
+      case "ZEND": return { bg: "rgba(34, 197, 94, 0.15)", border: "#00FF00", color: "#00FF00" };
+      case "SYMPHONY": return { bg: "rgba(226, 232, 240, 0.15)", border: "#FFFF00", color: "#FFFF00" };
+      case "LUMEN": return { bg: "rgba(239, 68, 68, 0.15)", border: "#FF0000", color: "#FF0000" };
+      case "SLIM": return { bg: "rgba(168, 85, 247, 0.15)", border: "#2e2e2e", color: "#2e2e2e" };
+      case "DART": return { bg: "rgba(100, 116, 139, 0.15)", border: "#B7B7B7", color: "#B7B7B7" };
+      case "PHALCON": return { bg: "rgba(20, 184, 166, 0.15)", border: "#7F6000", color: "#7F6000" };
+      case "FLUTTER": return { bg: "rgba(59, 130, 246, 0.15)", border: "#9900FF", color: "#9900FF" };
+      case "LAMINAS": return { bg: "rgba(6, 182, 212, 0.15)", border: "#00FFFF", color: "#00FFFF" };
+      case "FLIGHT": return { bg: "rgba(249, 115, 22, 0.15)", border: "#FF9900", color: "#FF9900" };
+      default: return { bg: "rgba(27, 34, 167, 0.15)", border: "#1B22A7", color: "#1B22A7" };
+    }
+  };
+
   useEffect(() => {
     const savedNim = localStorage.getItem("user_nim");
     const savedNama = localStorage.getItem("user_nama");
@@ -91,12 +146,15 @@ export default function PenugasanPage() {
     if (savedRole) setUserRole(savedRole);
     setCurrentNim(savedNim);
 
-    supabase.from("users").select("role, nama, total_points, is_graduated, graduation_status").eq("nim", savedNim).single().then(({ data }) => {
+    supabase.from("users").select("role, nama, total_points, is_graduated, graduation_status, kelompok").eq("nim", savedNim).single().then(({ data }) => {
       if (data) {
         setUserRole(data.role || "mahasiswa");
         setUserPoints(data.total_points || 0);
         setIsGraduatedStatus(data.is_graduated || false);
-        if (data.graduation_status) setGraduationLabel(data.graduation_status);
+        if (data.kelompok) setUserKelompok(data.kelompok);
+        if (data.graduation_status && typeof setGraduationLabel === "function") {
+          setGraduationLabel(data.graduation_status);
+        }
         if (data.nama) {
           setUserNama(data.nama);
           localStorage.setItem("user_nama", data.nama);
@@ -184,6 +242,8 @@ export default function PenugasanPage() {
   const handleOpenUploadModal = (taskId: string) => {
     setActiveTaskId(taskId);
     setSelectedFile(null);
+    setSubmissionLink("");
+    setSubmissionMode("file");
     setIsUploadModalOpen(true);
   };
 
@@ -195,119 +255,191 @@ export default function PenugasanPage() {
 
   const getCleanViewUrl = (rawUrl: string) => {
     if (!rawUrl) return "#";
-    return rawUrl.includes("?") ? rawUrl.replace("download=", "view=") : `${rawUrl}?view=true`;
+    if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
+      if (rawUrl.includes("supabase.co/storage")) {
+        return rawUrl.includes("?") ? rawUrl.replace("download=", "view=") : `${rawUrl}?view=true`;
+      }
+      return rawUrl;
+    }
+    return `https://${rawUrl}`;
   };
 
   const handleUploadSubmit = async () => {
-    if (!selectedFile) {
-      triggerToast("GAGAL MENGIRIM BERKAS", "Silakan pilih berkas tugas Anda terlebih dahulu!", true);
-      return;
-    }
-
-    const MAX_FILE_SIZE_MB = 25;
-    if (selectedFile.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-      triggerToast("UKURAN FILE TERLALU BESAR", `Maksimal ukuran berkas adalah ${MAX_FILE_SIZE_MB}MB.`, true);
-      return;
-    }
-
     if (!activeTaskId || !currentNim) return;
+
+    const targetTask = dbTasks.find((t) => t.id === activeTaskId);
+    const now = new Date();
+
+    let isLate = false;
+    if (targetTask?.deadline) {
+      const deadlineDate = new Date(targetTask.deadline);
+      if (!isNaN(deadlineDate.getTime())) {
+        isLate = now.getTime() > deadlineDate.getTime();
+      }
+    }
+    const statusText = isLate ? "TERLAMBAT" : "TEPAT WAKTU";
+    const finalNama = userNama || localStorage.getItem("user_nama") || currentNim;
+    const submittedAt = now.toISOString();
 
     setIsUploading(true);
 
     try {
-      const targetTask = dbTasks.find((t) => t.id === activeTaskId);
-      const now = new Date();
-
-      const sanitize = (text: string) => {
-        return text.trim().toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-");
-      };
-
-      const finalNama = userNama || localStorage.getItem("user_nama") || currentNim;
-      const cleanNim = sanitize(currentNim);
-      const cleanNama = sanitize(finalNama);
-      const cleanKategori = sanitize(targetTask?.category || "tugas");
-      const cleanJudul = sanitize(targetTask?.title || activeTaskId);
-      const fileExt = selectedFile.name.split('.').pop()?.toLowerCase() || 'pdf';
-
-      const timestampTag = Date.now();
-      const formattedFileName = `${cleanNim}_${cleanNama}_${cleanKategori}_${cleanJudul}_${timestampTag}.${fileExt}`;
-      const filePath = `${activeTaskId}/${cleanNim}_${cleanNama}_${cleanKategori}_${cleanJudul}.${fileExt}`;
-
-      let isLate = false;
-      if (targetTask?.deadline) {
-        const deadlineDate = new Date(targetTask.deadline);
-        if (!isNaN(deadlineDate.getTime())) {
-          isLate = now.getTime() > deadlineDate.getTime();
+      if (submissionMode === "link") {
+        const cleanLink = submissionLink.trim();
+        if (!cleanLink) {
+          triggerToast("GAGAL MENGIRIM LINK", "Silakan masukkan tautan tugas Anda!", true);
+          setIsUploading(false);
+          return;
         }
-      }
-      const statusText = isLate ? "TERLAMBAT" : "TEPAT WAKTU";
 
-      await supabase.storage.from('task-files').remove([filePath]);
+        const validUrlPattern = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([/\w .-]*)*\/?$/i;
+        if (!validUrlPattern.test(cleanLink)) {
+          triggerToast("FORMAT LINK TIDAK VALID", "Pastikan menyertakan tautan yang benar (contoh: https://drive.google.com/...)", true);
+          setIsUploading(false);
+          return;
+        }
 
-      const { error: uploadError } = await supabase.storage
-        .from('task-files')
-        .upload(filePath, selectedFile, { 
-          upsert: true, 
-          cacheControl: '3600',
-          contentType: selectedFile.type,
-          headers: {
-            'Content-Disposition': `inline; filename="${formattedFileName}"`
-          }
-        });
+        const formattedUrl = cleanLink.startsWith("http://") || cleanLink.startsWith("https://") 
+          ? cleanLink 
+          : `https://${cleanLink}`;
 
-      if (uploadError) throw new Error(`Storage error: ${uploadError.message}`);
+        const fileNameDisplay = `Tautan: ${formattedUrl.length > 35 ? formattedUrl.substring(0, 35) + "..." : formattedUrl}`;
 
-      const { data: urlData } = supabase.storage
-        .from('task-files')
-        .getPublicUrl(filePath);
+        const { error: dbError } = await supabase
+          .from('submissions')
+          .upsert(
+            {
+              task_id: activeTaskId,
+              user_nim: currentNim,
+              nama: finalNama,
+              tugas_id: targetTask?.title || activeTaskId,
+              file_url: formattedUrl,
+              file_name: fileNameDisplay,
+              submitted_at: submittedAt,
+              status: statusText,
+            },
+            { onConflict: 'task_id,user_nim' }
+          );
 
-      const downloadPublicUrl = `${urlData.publicUrl}?v=${timestampTag}&view=true`;
-      const submittedAt = now.toISOString();
+        if (dbError) throw new Error(`Database error: ${dbError.message}`);
 
-      const { error: dbError } = await supabase
-        .from('submissions')
-        .upsert(
-          {
-            task_id: activeTaskId,
-            user_nim: currentNim,
-            nama: finalNama,
-            tugas_id: targetTask?.title || activeTaskId,
-            file_url: downloadPublicUrl,
-            file_name: formattedFileName,
-            submitted_at: submittedAt,
+        setSubmissionsMap((prev) => ({
+          ...prev,
+          [activeTaskId]: { 
+            ...prev[activeTaskId],
+            task_id: activeTaskId, 
+            submitted_at: submittedAt, 
+            file_url: formattedUrl, 
+            file_name: fileNameDisplay,
             status: statusText,
-          },
-          { onConflict: 'task_id,user_nim' }
-        );
+            nama: finalNama
+          }
+        }));
 
-      if (dbError) throw new Error(`Database error: ${dbError.message}`);
+        setIsUploadModalOpen(false);
+        setSubmissionLink("");
+        fetchData();
 
-      setSubmissionsMap((prev) => ({
-        ...prev,
-        [activeTaskId]: { 
-          ...prev[activeTaskId],
-          task_id: activeTaskId, 
-          submitted_at: submittedAt, 
-          file_url: downloadPublicUrl, 
-          file_name: formattedFileName,
-          status: statusText,
-          nama: finalNama
+        if (isLate) {
+          triggerToast("TAUTAN DIKIRIM (TERLAMBAT)", "Tautan berhasil dikirim namun melewati batas deadline!", true);
+        } else {
+          triggerToast("TAUTAN BERHASIL DIKIRIM", "Tugas via tautan berhasil dikirim tepat waktu!", false);
         }
-      }));
 
-      setIsUploadModalOpen(false);
-      setSelectedFile(null);
-      fetchData();
-
-      if (isLate) {
-        triggerToast("BERKAS DIPERBARUI (TERLAMBAT)", "Tugas berhasil diunggah ulang namun melewati deadline!", true);
       } else {
-        triggerToast("BERKAS DIPERBARUI", "Tugas berhasil diperbarui dan dikirim tepat waktu!", false);
+        if (!selectedFile) {
+          triggerToast("GAGAL MENGIRIM BERKAS", "Silakan pilih berkas tugas Anda terlebih dahulu!", true);
+          setIsUploading(false);
+          return;
+        }
+
+        const MAX_FILE_SIZE_MB = 25;
+        if (selectedFile.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+          triggerToast("UKURAN FILE TERLALU BESAR", `Maksimal ukuran berkas adalah ${MAX_FILE_SIZE_MB}MB.`, true);
+          setIsUploading(false);
+          return;
+        }
+
+        const sanitize = (text: string) => {
+          return text.trim().toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-");
+        };
+
+        const cleanNim = sanitize(currentNim);
+        const cleanNama = sanitize(finalNama);
+        const cleanKategori = sanitize(targetTask?.category || "tugas");
+        const cleanJudul = sanitize(targetTask?.title || activeTaskId);
+        const fileExt = selectedFile.name.split('.').pop()?.toLowerCase() || 'pdf';
+
+        const timestampTag = Date.now();
+        const formattedFileName = `${cleanNim}_${cleanNama}_${cleanKategori}_${cleanJudul}_${timestampTag}.${fileExt}`;
+        const filePath = `${activeTaskId}/${cleanNim}_${cleanNama}_${cleanKategori}_${cleanJudul}.${fileExt}`;
+
+        await supabase.storage.from('task-files').remove([filePath]);
+
+        const { error: uploadError } = await supabase.storage
+          .from('task-files')
+          .upload(filePath, selectedFile, { 
+            upsert: true, 
+            cacheControl: '3600',
+            contentType: selectedFile.type,
+            headers: {
+              'Content-Disposition': `inline; filename="${formattedFileName}"`
+            }
+          });
+
+        if (uploadError) throw new Error(`Storage error: ${uploadError.message}`);
+
+        const { data: urlData } = supabase.storage
+          .from('task-files')
+          .getPublicUrl(filePath);
+
+        const downloadPublicUrl = `${urlData.publicUrl}?v=${timestampTag}&view=true`;
+
+        const { error: dbError } = await supabase
+          .from('submissions')
+          .upsert(
+            {
+              task_id: activeTaskId,
+              user_nim: currentNim,
+              nama: finalNama,
+              tugas_id: targetTask?.title || activeTaskId,
+              file_url: downloadPublicUrl,
+              file_name: formattedFileName,
+              submitted_at: submittedAt,
+              status: statusText,
+            },
+            { onConflict: 'task_id,user_nim' }
+          );
+
+        if (dbError) throw new Error(`Database error: ${dbError.message}`);
+
+        setSubmissionsMap((prev) => ({
+          ...prev,
+          [activeTaskId]: { 
+            ...prev[activeTaskId],
+            task_id: activeTaskId, 
+            submitted_at: submittedAt, 
+            file_url: downloadPublicUrl, 
+            file_name: formattedFileName,
+            status: statusText,
+            nama: finalNama
+          }
+        }));
+
+        setIsUploadModalOpen(false);
+        setSelectedFile(null);
+        fetchData();
+
+        if (isLate) {
+          triggerToast("BERKAS DIPERBARUI (TERLAMBAT)", "Tugas berhasil diunggah ulang namun melewati deadline!", true);
+        } else {
+          triggerToast("BERKAS DIPERBARUI", "Tugas berhasil diperbarui dan dikirim tepat waktu!", false);
+        }
       }
 
     } catch (error: any) {
       console.error("Upload Error:", error);
-      triggerToast("GAGAL UNGGAH", error.message || "Terjadi kesalahan saat mengunggah berkas.", true);
+      triggerToast("GAGAL MENGIRIM", error.message || "Terjadi kesalahan saat memproses pengumpulan.", true);
     } finally {
       setIsUploading(false);
     }
@@ -318,17 +450,17 @@ export default function PenugasanPage() {
     setIsUploading(true);
 
     try {
-      const rulesArray = typeof editTaskData.rules === "string" 
-        ? editTaskData.rules.split("\n").filter((r: string) => r.trim() !== "")
-        : editTaskData.rules;
+      const formattedRules = Array.isArray(editTaskData.rules)
+        ? editTaskData.rules.join("\n")
+        : (editTaskData.rules || "");
 
       const { error } = await supabase
         .from("tasks")
         .update({
           title: editTaskData.title,
           category: editTaskData.category,
-          rules: rulesArray,
-          deadline: new Date(editTaskData.deadline).toISOString(),
+          rules: formattedRules,
+          deadline: formatInputToISO(editTaskData.deadline),
           points: Number(editTaskData.points) || 0,
         })
         .eq("id", editTaskData.id);
@@ -360,7 +492,7 @@ export default function PenugasanPage() {
 
       if (error) throw error;
 
-      triggerToast("PERUBAHAN DISIMPAN", "Pengumuman berhasil diperbarui!", false);
+      triggerToast("PERUBAHAN DISIMPAN", "Pengumuman resmi berhasil diperbarui!", false);
       setIsEditAnnModalOpen(false);
       fetchData();
     } catch (err: any) {
@@ -424,6 +556,26 @@ export default function PenugasanPage() {
     const userSubmission = submissionsMap[task.id];
     const themeColor = isLate ? "#FF3333" : "#00FF88";
 
+    // Bersihkan teks ketentuan agar tampil sebagai paragraf polos
+    let formattedRulesText = "";
+    if (Array.isArray(task.rules)) {
+      formattedRulesText = task.rules
+        .map((r: any) => typeof r === "string" ? r.replace(/^["']|["']$/g, "") : r)
+        .join("\n\n");
+    } else if (typeof task.rules === "string") {
+      let raw = task.rules.trim();
+      if (raw.startsWith("[") && raw.endsWith("]")) {
+        try {
+          const parsed = JSON.parse(raw);
+          formattedRulesText = Array.isArray(parsed) ? parsed.join("\n\n") : parsed;
+        } catch {
+          formattedRulesText = raw.slice(1, -1).replace(/^["']|["']$/g, "");
+        }
+      } else {
+        formattedRulesText = raw;
+      }
+    }
+
     return (
       <div 
         key={task.id}
@@ -468,7 +620,6 @@ export default function PenugasanPage() {
                   </span>
                 )}
 
-                {/* 🟢 Badge Menunggu Validasi diubah menjadi warna BIRU (#1B22A7) */}
                 {userSubmission && !userSubmission.is_validated && (
                   <span style={{ background: "transparent", border: "2px solid #1B22A7", color: "#fafafa", fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "50px", letterSpacing: "1px", textTransform: "uppercase", display: "inline-flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
                     ⏳ MENUNGGU VALIDASI
@@ -488,7 +639,6 @@ export default function PenugasanPage() {
                 ) : null}
               </div>
 
-              {/* 🟢 Tombol Edit Tugas untuk Admin/Panitia diubah menjadi warna BIRU (#1B22A7) */}
               {(userRole === "panitia" || userRole === "admin") && (
                 <button
                   type="button"
@@ -496,8 +646,8 @@ export default function PenugasanPage() {
                     e.stopPropagation();
                     setEditTaskData({
                       ...task,
-                      rules: task.rules?.join("\n") || "",
-                      deadline: new Date(task.deadline).toISOString().slice(0, 16),
+                      rules: Array.isArray(task.rules) ? task.rules.join("\n") : (task.rules || ""),
+                      deadline: formatISOToInput(task.deadline),
                       points: task.points || 0
                     });
                     setIsEditTaskModalOpen(true);
@@ -507,7 +657,7 @@ export default function PenugasanPage() {
                     border: "2px solid #1B22A7",
                     color: "#fafafa",
                     padding: "5px 12px",
-                    borderRadius: "6px",
+                    borderRadius: "50px",
                     fontSize: "11px",
                     fontWeight: 700,
                     cursor: "pointer",
@@ -523,65 +673,25 @@ export default function PenugasanPage() {
             </div>
 
             <span className="task-meta-subtitle" style={{ color: "rgba(250, 250, 250, 0.6)", fontSize: "12px", marginTop: "6px", display: "block" }}>
-              {task.rules?.length || 0} Ketentuan • Klik untuk rincian & upload
+              Klik untuk rincian & kumpulkan
             </span>
           </div>
         </div>
 
         {expandedTask === task.id && (
           <div className="task-expanded-detail open" style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid rgba(255, 255, 255, 0.1)" }}>
-            {task.rules?.map((rule: string, idx: number) => (
-              <div 
-                key={idx} 
-                style={{ 
-                  display: "grid", 
-                  gridTemplateColumns: "24px 1fr", 
-                  alignItems: "start", 
-                  gap: "10px", 
-                  marginBottom: "10px", 
-                  textAlign: "left" 
-                }}
-              >
-                <span 
-                  style={{ 
-                    color: "#FAFAFA",
-                    fontWeight: 700, 
-                    fontSize: "11px",
-                    width: "22px",
-                    height: "22px",
-                    borderRadius: "50%",
-                    border: "1px solid rgba(255, 255, 255, 0.3)",
-                    background: "rgba(255, 255, 255, 0.05)",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0
-                  }}
-                >
-                  {idx + 1}
-                </span>
-                <p 
-                  style={{ 
-                    margin: 0, 
-                    fontSize: "13.5px", 
-                    color: "rgba(250, 250, 250, 0.85)", 
-                    textAlign: "left", 
-                    lineHeight: "1.5"
-                  }}
-                >
-                  {renderContentWithLinks(rule)}
-                </p>
-              </div>
-            ))}
+            <div style={{ color: "rgba(250, 250, 250, 0.85)", fontSize: "13.5px", lineHeight: 1.6, whiteSpace: "pre-line", textAlign: "left", marginBottom: "12px" }}>
+              <p style={{ margin: 0 }}>{renderContentWithLinks(formattedRulesText)}</p>
+            </div>
 
             {userSubmission && (
-              <div style={{ marginTop: "15px", background: isLate ? "transparent" : "transparent", border: `1px solid ${themeColor}`, borderRadius: "10px", padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
+              <div style={{ marginTop: "15px", background: isLate ? "transparent" : "transparent", border: `1px solid ${themeColor}`, borderRadius: "50px", padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", overflow: "hidden" }}>
                   <FileCheck size={18} style={{ color: themeColor, flexShrink: 0 }} />
                   <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                    <span style={{ fontSize: "11px", color: themeColor, fontWeight: 700, textTransform: "uppercase" }}>Berkas Dikirim</span>
+                    <span style={{ fontSize: "11px", color: themeColor, fontWeight: 700 }}>Pengumpulan Tersimpan</span>
                     <span style={{ fontSize: "12px", color: "#FAFAFA", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {userSubmission.file_name || "Lihat File Tugas Anda"}
+                      {userSubmission.file_name || "Tugas Anda"}
                     </span>
                   </div>
                 </div>
@@ -591,16 +701,16 @@ export default function PenugasanPage() {
                   target="_blank" 
                   rel="noreferrer"
                   onClick={(e) => e.stopPropagation()}
-                  style={{ background: themeColor, color: isLate ? "#FAFAFA" : "#000", fontSize: "11px", fontWeight: 800, padding: "5px 12px", borderRadius: "6px", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "4px", flexShrink: 0 }}
+                  style={{ border: "1px solid", borderColor: themeColor, background: "transparent", color: isLate ? "#FF3333" : themeColor, fontSize: "11px", fontWeight: 800, padding: "5px 12px", borderRadius: "50px", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "4px", flexShrink: 0 }}
                 >
-                  CEK BERKAS <ExternalLink size={12} />
+                  Buka Pengumpulan <ExternalLink size={12} />
                 </a>
               </div>
             )}
 
             <div className="task-action-footer" style={{ marginTop: "16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
               <span className="deadline-tag" style={{ fontSize: "11px", color: themeColor, fontWeight: 700, letterSpacing: "0.5px" }}>
-                DEADLINE: {new Date(task.deadline).toLocaleString("id-ID")}
+                DEADLINE: {formatDateTimeWIB(task.deadline)} WIB
               </span>
               <button 
                 type="button" 
@@ -615,7 +725,7 @@ export default function PenugasanPage() {
                   handleOpenUploadModal(task.id);
                 }}
               >
-                {isSubmitted ? "UNGGAH ULANG" : "UPLOAD TUGAS"}
+                {isSubmitted ? "KUMPULKAN ULANG" : "KUMPULKAN TUGAS"}
               </button>
             </div>
           </div>
@@ -642,11 +752,11 @@ export default function PenugasanPage() {
       >
         <aside 
           className="task-sidebar" 
-          style={{ 
+          style={{
             display: "flex", 
             flexDirection: "column", 
             position: "sticky", 
-            top: "120px", 
+            top: "120px",
             height: "calc(100vh - 140px)", 
             maxHeight: "800px",
             boxSizing: "border-box",
@@ -659,18 +769,41 @@ export default function PenugasanPage() {
                 minHeight: "38px",
                 marginBottom: "10px", 
                 background: userRole === "admin" ? "transparent" : "transparent", 
-                border: userRole === "admin" ? "1px solid #FF3333" : "2px solid #1B22A7", 
+                border: userRole === "admin" ? "2px solid #FF3333" : "2px solid #1B22A7", 
                 padding: "6px 12px", 
                 borderRadius: "20px", 
                 display: "inline-flex", 
                 alignItems: "center", 
                 gap: "6px" 
               }}>
-                {userRole === "admin" ? <ShieldAlert size={13} style={{ color: "#FF3333" }} /> : <User size={13} style={{ color: "#fafafa" }} />}
+                {userRole === "admin" ? <ShieldAlert size={0} style={{ color: "#FF3333" }} /> : <User size={13} style={{ color: "#fafafa" }} />}
                 <span style={{ fontSize: "11px", color: userRole === "admin" ? "#FF3333" : "#fafafa", fontWeight: 700, textTransform: "uppercase" }}>
                   {userNama || "MEMUAT..."}
                 </span>
               </div>
+
+              {userRole !== "admin" && userRole !== "panitia" && userRole !== "ksk" && (
+                (() => {
+                  const sty = getKelompokStyle(userKelompok);
+                  return (
+                    <div style={{ 
+                      background: "transparent", 
+                      border: `2px solid ${sty.border}`, 
+                      padding: "6px 12px", 
+                      borderRadius: "20px", 
+                      display: "flex", 
+                      alignItems: "center", 
+                      justifyContent: "space-between",
+                      marginBottom: "15px"
+                    }}>
+                      <span style={{ fontSize: "11px", color: sty.color, fontWeight: 700, textTransform: "uppercase" }}>Kelompok:</span>
+                      <span style={{ fontSize: "11px", color: sty.color, fontWeight: 700, textTransform: "uppercase" }}>
+                        {userKelompok}
+                      </span>
+                    </div>
+                  );
+                })()
+              )}
 
               <h2 className="sidebar-header-title">MENU UTAMA</h2>
             </div>
@@ -700,17 +833,17 @@ export default function PenugasanPage() {
                 </div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: "6px", marginBottom: "12px" }}>
                   <span style={{ fontSize: "24px", fontWeight: 800, color: "#FAFAFA" }}>{userPoints}</span>
-                  <span style={{ fontSize: "13px", color: "rgba(250, 250, 250, 0.5)", fontWeight: 600 }}>/ 300</span>
+                  <span style={{ fontSize: "13px", color: "rgba(250, 250, 250, 0.5)", fontWeight: 600 }}>/ 3375</span>
                 </div>
 
                 <div style={{ borderTop: "1px solid #1B22A7", paddingTop: "10px" }}>
                   <span style={{ fontSize: "10px", color: "#fafafa", display: "block", marginBottom: "4px" }}>Status Kelulusan:</span>
                   {isGraduatedStatus ? (
-                    <div style={{ background: "rgba(0, 255, 136, 0.12)", border: "1px solid #00FF88", color: "#00FF88", padding: "6px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: 800, display: "flex", alignItems: "center", gap: "6px" }}>
+                    <div style={{ background: "transparent", border: "1px solid #00FF88", color: "#00FF88", padding: "6px 10px", borderRadius: "50px", fontSize: "11px", fontWeight: 800, display: "flex", alignItems: "center", gap: "6px" }}>
                       <CheckCircle size={14} /> {graduationLabel}
                     </div>
                   ) : (
-                    <div style={{ background: "transparent", border: "2px solid #1B22A7", color: "rgba(250, 250, 250, 0.5)", padding: "6px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: 800, display: "flex", alignItems: "center", gap: "6px" }}>
+                    <div style={{ background: "transparent", border: "2px solid #1B22A7", color: "rgba(250, 250, 250, 0.5)", padding: "6px 10px", borderRadius: "50px", fontSize: "11px", fontWeight: 800, display: "flex", alignItems: "center", gap: "6px" }}>
                       ⏳ MENUNGGU KEPUTUSAN
                     </div>
                   )}
@@ -724,7 +857,7 @@ export default function PenugasanPage() {
                 className="sidebar-btn" 
                 style={{ background: "rgba(0, 255, 136, 0.08)", border: "1px solid #00FF88", color: "#00FF88", textAlign: "center", textDecoration: "none", display: "block" }}
               >
-                ⚙️ PANEL {userRole.toUpperCase()}
+                PANEL {userRole.toUpperCase()}
               </a>
             )}
           </div>
@@ -749,7 +882,6 @@ export default function PenugasanPage() {
                             </span>
                           </div>
 
-                          {/* 🟢 Tombol Edit Pengumuman untuk Admin/Panitia */}
                           {(userRole === "panitia" || userRole === "admin") && (
                             <button
                               type="button"
@@ -762,7 +894,7 @@ export default function PenugasanPage() {
                                 border: "2px solid #1B22A7",
                                 color: "#fafafa",
                                 padding: "5px 12px",
-                                borderRadius: "6px",
+                                borderRadius: "50px",
                                 fontSize: "11px",
                                 fontWeight: 700,
                                 cursor: "pointer",
@@ -858,46 +990,128 @@ export default function PenugasanPage() {
         </div>
       )}
 
-      {/* MODAL UPLOAD (.pdf, .mp4, .txt) */}
+      {/* MODAL PENGUMPULAN TUGAS */}
       {isUploadModalOpen && (
         <div className="modal-overlay active" style={{ zIndex: 999999 }} onClick={() => !isUploading && setIsUploadModalOpen(false)}>
           <div className="modal-card" style={{ maxWidth: "480px" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <UploadCloud style={{ width: "38px", height: "38px", color: "#1B22A7" }} />
-              <h2 style={{ color: "#FAFAFA", fontSize: "18px", margin: 0 }}>UNGGAH BERKAS TUGAS</h2>
+              {submissionMode === "file" ? (
+                <UploadCloud style={{ width: "38px", height: "38px", color: "#1B22A7" }} />
+              ) : (
+                <Link2 style={{ width: "38px", height: "38px", color: "#00FF88" }} />
+              )}
+              <h2 style={{ color: "#FAFAFA", fontSize: "18px", margin: 0 }}>PENGUMPULAN TUGAS</h2>
             </div>
-            <p className="modal-desc" style={{ marginBottom: "20px" }}>Silakan pilih berkas tugas Anda (Format: PDF, MP4, atau TXT untuk link Drive).</p>
+            
+            <div style={{ display: "flex", gap: "8px", width: "100%", margin: "18px 0 14px 0" }}>
+              <button
+                type="button"
+                onClick={() => setSubmissionMode("file")}
+                disabled={isUploading}
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  borderRadius: "50px",
+                  background: submissionMode === "file" ? "#1B22A7" : "transparent",
+                  color: "#FAFAFA",
+                  border: submissionMode === "file" ? "1.5px solid #1B22A7" : "1.5px solid rgba(255,255,255,0.15)",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "6px"
+                }}
+              >
+                <UploadCloud size={14} /> Unggah Berkas
+              </button>
 
-            <label 
-              htmlFor="fileInput" 
-              className="dropzone-area" 
-              style={{ display: "block", cursor: "pointer" }}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                  setSelectedFile(e.dataTransfer.files[0]);
-                }
-              }}
-            >
-              <div className="dropzone-info">
-                <UploadCloud style={{ width: "28px", height: "28px", color: "#1B22A7", marginBottom: "8px" }} />
-                <p className="dropzone-text">Tarik & Lepaskan atau <span style={{ color: "#FAFAFA", fontWeight: 700 }}>Pilih Berkas</span></p>
-                <span className="file-spec">Format dapat berupa: .pdf, .mp4, atau .txt (Maks. 25MB)</span>
-              </div>
-              <input type="file" id="fileInput" style={{ display: "none" }} accept=".pdf,.mp4,.txt" onChange={handleFileChange} disabled={isUploading} />
-            </label>
+              <button
+                type="button"
+                onClick={() => setSubmissionMode("link")}
+                disabled={isUploading}
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  borderRadius: "50px",
+                  background: submissionMode === "link" ? "#1B22A7" : "transparent",
+                  color: "#FAFAFA",
+                  border: submissionMode === "link" ? "1.5px solid #1B22A7" : "1.5px solid rgba(255,255,255,0.15)",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "6px"
+                }}
+              >
+                <Link2 size={14} /> Kumpulkan Tautan
+              </button>
+            </div>
 
-            {selectedFile && (
-              <div style={{ marginTop: "15px", textAlign: "left", background: "rgba(0, 255, 136, 0.08)", border: "1px solid #00FF88", padding: "12px 16px", borderRadius: "12px", display: "flex", alignItems: "center", gap: "10px" }}>
-                <FileCheck style={{ width: "20px", height: "20px", color: "#00FF88" }} />
-                <span style={{ fontSize: "12.5px", color: "#FAFAFA", fontWeight: 600 }}>{selectedFile.name}</span>
+            {submissionMode === "file" ? (
+              <>
+                <p className="modal-desc" style={{ marginBottom: "16px" }}>Silakan pilih berkas tugas Anda (Format: PDF, MP4, atau TXT).</p>
+                <label 
+                  htmlFor="fileInput" 
+                  className="dropzone-area" 
+                  style={{ display: "block", cursor: "pointer" }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                      setSelectedFile(e.dataTransfer.files[0]);
+                    }
+                  }}
+                >
+                  <div className="dropzone-info">
+                    <UploadCloud style={{ width: "28px", height: "28px", color: "#1B22A7", marginBottom: "8px" }} />
+                    <p className="dropzone-text">Tarik & Lepaskan atau <span style={{ color: "#FAFAFA", fontWeight: 700 }}>Pilih Berkas</span></p>
+                    <span className="file-spec">Format dapat berupa: .pdf, .mp4, atau .txt (Maks. 25MB)</span>
+                  </div>
+                  <input type="file" id="fileInput" style={{ display: "none" }} accept=".pdf,.mp4,.txt" onChange={handleFileChange} disabled={isUploading} />
+                </label>
+
+                {selectedFile && (
+                  <div style={{ marginTop: "15px", textAlign: "left", background: "transparent", border: "1px solid #00FF88", padding: "12px 16px", borderRadius: "50px", display: "flex", alignItems: "center", gap: "10px" }}>
+                    <FileCheck style={{ width: "20px", height: "20px", color: "#00FF88" }} />
+                    <span style={{ fontSize: "12.5px", color: "#FAFAFA", fontWeight: 600 }}>{selectedFile.name}</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", width: "100%", margin: "8px 0" }}>
+                <p className="modal-desc" style={{ marginBottom: "6px" }}>
+                  Masukkan link tugas Anda (Google Drive, YouTube, dsb). Pastikan akses tautan telah dibuka untuk publik!
+                </p>
+                <div className="input-group" style={{ textAlign: "left" }}>
+                  <label style={{ fontSize: "11px", color: "#aaa" }}>Tautan Tugas (URL)</label>
+                  <input
+                    type="url"
+                    placeholder="https://drive.google.com/..."
+                    value={submissionLink}
+                    onChange={(e) => setSubmissionLink(e.target.value)}
+                    disabled={isUploading}
+                    style={{
+                      background: "#0a0a0a",
+                      border: "1.5px solid #1B22A7",
+                      color: "#fff",
+                      padding: "12px",
+                      borderRadius: "8px",
+                      width: "100%",
+                      fontSize: "13px",
+                      boxSizing: "border-box"
+                    }}
+                  />
+                </div>
               </div>
             )}
 
             <div className="modal-buttons" style={{ marginTop: "25px" }}>
               <button type="button" className="btn-modal-primary" onClick={handleUploadSubmit} disabled={isUploading}>
-                {isUploading ? "MENGUNGGAH..." : "KIRIM TUGAS"}
+                {isUploading ? "MENYIMPAN..." : "KIRIM TUGAS"}
               </button>
               <button type="button" className="btn-modal-close" onClick={() => setIsUploadModalOpen(false)} disabled={isUploading}>KEMBALI</button>
             </div>
@@ -939,9 +1153,9 @@ export default function PenugasanPage() {
               </div>
 
               <div className="input-group">
-                <label style={{ fontSize: "11px", color: "#aaa" }}>Ketentuan (klik enter untuk ketentuan selanjunya)</label>
+                <label style={{ fontSize: "11px", color: "#aaa" }}>Ketentuan</label>
                 <textarea 
-                  rows={4} 
+                  rows={6} 
                   value={editTaskData.rules} 
                   onChange={(e) => setEditTaskData({ ...editTaskData, rules: e.target.value })} 
                   style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} 
@@ -958,18 +1172,20 @@ export default function PenugasanPage() {
                 />
               </div>
 
+              {/* 🟢 Input Deadline Dilengkapi step="1" Agar Menampilkan Kolom Detik */}
               <div className="input-group">
                 <label style={{ fontSize: "11px", color: "#aaa" }}>Deadline</label>
                 <input 
                   type="datetime-local" 
+                  step="1"
                   value={editTaskData.deadline} 
                   onChange={(e) => setEditTaskData({ ...editTaskData, deadline: e.target.value })} 
-                  style={{ background: "#0a0a0a", border: "22px solid #fafafa", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} 
+                  style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} 
                 />
               </div>
 
               <div style={{ display: "flex", gap: "10px", marginTop: "15px" }}>
-                <button type="button" onClick={handleSaveEditTask} className="btn-modal-primary" disabled={isUploading} style={{ background: "#00FF88", color: "#000", fontWeight: 700 }}>
+                <button type="button" onClick={handleSaveEditTask} className="btn-modal-primary" disabled={isUploading} style={{ background: "#00FF88", color: "#00FF88", fontWeight: 700 }}>
                   {isUploading ? "MENYIMPAN..." : "SIMPAN PERUBAHAN"}
                 </button>
                 <button type="button" onClick={() => setIsEditTaskModalOpen(false)} className="btn-modal-close">BATAL</button>
@@ -1010,7 +1226,7 @@ export default function PenugasanPage() {
               </div>
 
               <div style={{ display: "flex", gap: "10px", marginTop: "15px" }}>
-                <button type="button" onClick={handleSaveEditAnn} className="btn-modal-primary" disabled={isUploading} style={{ background: "#00FF88", color: "#000", fontWeight: 700 }}>
+                <button type="button" onClick={handleSaveEditAnn} className="btn-modal-primary" disabled={isUploading} style={{ background: "#00FF88", color: "#00FF88", fontWeight: 700 }}>
                   {isUploading ? "MENYIMPAN..." : "SIMPAN PERUBAHAN"}
                 </button>
                 <button type="button" onClick={() => setIsEditAnnModalOpen(false)} className="btn-modal-close">BATAL</button>

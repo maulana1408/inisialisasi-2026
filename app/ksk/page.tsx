@@ -105,8 +105,8 @@ export default function KskPanelPage() {
 
       const newTotalPoints = (targetStudent.total_points || 0) + 75;
       
-      // Otomatis tentukan status kelulusan jika poin >= 300
-      const isGraduatedAuto = newTotalPoints >= 300;
+      // Otomatis tentukan status kelulusan jika poin >= 3375
+      const isGraduatedAuto = newTotalPoints >= 3375;
 
       await supabase
         .from("users")
@@ -142,7 +142,7 @@ export default function KskPanelPage() {
 
       const deduction = -Math.abs(pointDeduction);
       const newTotalPoints = Math.max(0, (targetStudent.total_points || 0) + deduction);
-      const isGraduatedAuto = newTotalPoints >= 300;
+      const isGraduatedAuto = newTotalPoints >= 3375;
 
       await supabase
         .from("users")
@@ -165,14 +165,14 @@ export default function KskPanelPage() {
     }
   };
 
-  // 3. Trigger Buka Serentak Status Kelulusan Berdasarkan Target 300 Poin
+  // 3. Trigger Buka Serentak Status Kelulusan Berdasarkan Target 3375 Poin
   const handleTriggerGlobalGraduation = async () => {
-    if (!confirm("Apakah Anda yakin ingin mengunci dan merilis status kelulusan akhir untuk seluruh Maba berdasarkan akumulasi 300 poin?")) return;
+    if (!confirm("Apakah Anda yakin ingin mengunci dan merilis status kelulusan akhir untuk seluruh Maba berdasarkan akumulasi 3375 poin?")) return;
 
     try {
-      // Update massal di database berdasarkan poin >= 300
+      // Update massal di database berdasarkan poin >= 3375
       for (const student of students) {
-        const passed = (student.total_points || 0) >= 300;
+        const passed = (student.total_points || 0) >= 3375;
         await supabase
           .from("users")
           .update({ is_graduated: passed })
@@ -291,7 +291,7 @@ export default function KskPanelPage() {
 
             <div style={{ background: "#111115", border: "1px solid rgba(255,255,255,0.1)", padding: "24px", borderRadius: "16px" }}>
               <h3 style={{ margin: "0 0 10px 0", fontSize: "16px" }}>📊 Rekap Poin Maba</h3>
-              <p style={{ fontSize: "12px", color: "rgba(250,250,250,0.5)", marginBottom: "15px" }}>Target kelulusan minimal adalah 300 poin.</p>
+              <p style={{ fontSize: "12px", color: "rgba(250,250,250,0.5)", marginBottom: "15px" }}>Target kelulusan minimal adalah 3375 poin.</p>
               <div style={{ maxHeight: "300px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
                 {students.map((s) => (
                   <div key={s.nim} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,255,255,0.03)", padding: "10px 14px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.06)" }}>
@@ -391,7 +391,7 @@ export default function KskPanelPage() {
               <Award size={18} style={{ color: "#00FF88" }} /> Pengumuman Kelulusan Akhir (Sebelum Pengukuhan)
             </h3>
             <p style={{ fontSize: "13px", color: "rgba(250,250,250,0.7)", lineHeight: "1.6", marginBottom: "20px" }}>
-              Tombol ini digunakan untuk membuka dan mengumumkan status kelulusan mahasiswa secara serentak. Sistem akan otomatis mengevaluasi mahasiswa yang telah mencapai minimal 300 poin untuk dinyatakan <strong>LULUS</strong>.
+              Tombol ini digunakan untuk membuka dan mengumumkan status kelulusan mahasiswa secara serentak. Sistem akan otomatis mengevaluasi mahasiswa yang telah mencapai minimal 3375 poin untuk dinyatakan <strong>LULUS</strong>.
             </p>
             <button 
               onClick={handleTriggerGlobalGraduation}
