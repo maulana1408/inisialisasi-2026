@@ -109,14 +109,12 @@ export default function AdminPage() {
     }, 4200);
   };
 
-  // Helper konversi datetime-local ke ISO agar tidak tergeser zona waktu UTC
   const formatInputToISO = (datetimeLocalVal: string) => {
     if (!datetimeLocalVal) return "";
     const localDate = new Date(datetimeLocalVal);
     return isNaN(localDate.getTime()) ? datetimeLocalVal : localDate.toISOString();
   };
 
-  // Helper konversi ISO ke format value datetime-local beserta detik
   const formatISOToInput = (isoString: string) => {
     if (!isoString) return "";
     const d = new Date(isoString);
@@ -125,7 +123,6 @@ export default function AdminPage() {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   };
 
-  // Helper format tampilan waktu terkunci ke WIB dengan detik
   const formatDateTimeWIB = (dateString: string) => {
     if (!dateString) return "-";
     const d = new Date(dateString);
@@ -220,6 +217,39 @@ export default function AdminPage() {
     loadAttendance();
   }, [selectedSession, currentNim]);
 
+  // 🟢 FITUR BARU: Evaluasi Kehadiran Kelompok (< 80% Kurang 10 Poin)
+  const applyGroupAttendancePenaltyIfNeeded = async (session: string, targetKelompok: string) => {
+    const groupStudents = students.filter((s) => s.kelompok === targetKelompok);
+    if (groupStudents.length === 0) return;
+
+    let presentCount = 0;
+    groupStudents.forEach((stu) => {
+      if (stu.nim === groupStudents[0].nim) {
+        // Cek status saat ini
+      }
+      if (attendanceRecords[stu.nim]) presentCount++;
+    });
+
+    const percentage = (presentCount / groupStudents.length) * 100;
+
+    // Jika kehadiran kelompok di bawah 80%, kurangi poin presensi masing-masing anggota sebesar 10 poin
+    if (percentage < 80) {
+      for (const stu of groupStudents) {
+        const currentAttPts = attendancePointsMap[stu.nim] || 375;
+        const penalizedPts = Math.max(0, currentAttPts - 10);
+        
+        await supabase
+          .from("attendance")
+          .update({ awarded_points: penalizedPts })
+          .eq("user_nim", stu.nim)
+          .eq("session_name", session);
+
+        await recalculateUserTotalPoints(stu.nim);
+      }
+      triggerToast("PENALTI KELOMPOK", `Kehadiran kelompok ${targetKelompok} di bawah 80% (${percentage.toFixed(0)}%). Seluruh anggota dikurangi 10 poin!`, true);
+    }
+  };
+
   const handleAttendanceToggle = async (nim: string, currentStatus: boolean) => {
     const nextStatus = !currentStatus;
     const currentPoints = nextStatus ? (attendancePointsMap[nim] || Number(sessionPoints) || 375) : 0;
@@ -243,6 +273,10 @@ export default function AdminPage() {
       triggerToast("GAGAL SIMPAN", error.message, true);
     } else {
       await recalculateUserTotalPoints(nim);
+      const studentObj = students.find((s) => s.nim === nim);
+      if (studentObj && studentObj.kelompok) {
+        await applyGroupAttendancePenaltyIfNeeded(selectedSession, studentObj.kelompok);
+      }
       loadAllData();
     }
   };
@@ -555,9 +589,15 @@ export default function AdminPage() {
     ];
   };
 
+  // 🟢 FITUR BARU: Distribusi Nilai Tugas Otomatis (Kelompok & Angkatan)
   const handleTaskPointOptionChange = async (submissionId: string, targetNim: string, newPoints: number) => {
     const isValidated = newPoints > 0;
+    const currentSub = submissions.find((s) => s.id === submissionId);
+    const targetTask = currentSub ? tasksMap[currentSub.task_id] : null;
+    const taskCat = targetTask?.category?.toLowerCase() || "individu";
+    const targetKelompok = currentSub?.users?.kelompok;
 
+    // 1. Update pengumpulan utama yang dipilih admin
     const { error } = await supabase
       .from("submissions")
       .update({
@@ -568,11 +608,55 @@ export default function AdminPage() {
 
     if (error) {
       triggerToast("GAGAL SIMPAN POIN", error.message, true);
-    } else {
-      await recalculateUserTotalPoints(targetNim);
-      triggerToast("POIN PENUGASAN DIUBAH", `Tugas ${targetNim} diset ke ${newPoints} poin!`, false);
-      loadAllData();
+      return;
     }
+
+    await recalculateUserTotalPoints(targetNim);
+
+    // 2. Distribusi otomatis jika kategori KELOMPOK atau ANGKATAN
+    if (taskCat === "kelompok" && targetKelompok) {
+      const groupSubmissions = submissions.filter(
+        (s) => s.task_id === currentSub.task_id && s.users?.kelompok === targetKelompok && s.id !== submissionId
+      );
+
+      for (const sub of groupSubmissions) {
+        await supabase
+          .from("submissions")
+          .update({
+            is_validated: isValidated,
+            awarded_points: newPoints
+          })
+          .eq("id", sub.id);
+
+        if (sub.user_nim) {
+          await recalculateUserTotalPoints(sub.user_nim);
+        }
+      }
+      triggerToast("DISTRIBUSI KELOMPOK", `Nilai tugas kelompok ${targetKelompok} berhasil didistribusikan ke seluruh anggota!`, false);
+    } else if (taskCat === "angkatan") {
+      const batchSubmissions = submissions.filter(
+        (s) => s.task_id === currentSub.task_id && s.id !== submissionId
+      );
+
+      for (const sub of batchSubmissions) {
+        await supabase
+          .from("submissions")
+          .update({
+            is_validated: isValidated,
+            awarded_points: newPoints
+          })
+          .eq("id", sub.id);
+
+        if (sub.user_nim) {
+          await recalculateUserTotalPoints(sub.user_nim);
+        }
+      }
+      triggerToast("DISTRIBUSI ANGKATAN", "Nilai tugas angkatan berhasil didistribusikan ke seluruh mahasiswa!", false);
+    } else {
+      triggerToast("POIN PENUGASAN DIUBAH", `Tugas ${targetNim} diset ke ${newPoints} poin!`, false);
+    }
+
+    loadAllData();
   };
 
   const getCleanViewUrl = (rawUrl: string) => {
@@ -627,7 +711,6 @@ export default function AdminPage() {
     return matchCat && matchStatus && matchTitle && matchKelompok;
   });
 
-  // Filter Presensi Mahasiswa
   const filteredStudents = students.filter((stu) => {
     const isPresent = !!attendanceRecords[stu.nim];
     let matchStatus = true;
@@ -642,7 +725,6 @@ export default function AdminPage() {
     return matchStatus && matchKelompok;
   });
 
-  // Filter Mahasiswa di Tab Evaluasi Akhir
   const scopedEvaluationStudents = students.filter((stu) => {
     if (filterEvalKelompok !== "all") {
       return stu.kelompok === filterEvalKelompok;
@@ -1222,7 +1304,6 @@ export default function AdminPage() {
                   <input type="number" placeholder="Contoh: 10" value={taskPoints} onChange={(e) => setTaskPoints(e.target.value === "" ? "" : Number(e.target.value))} required style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "8px", width: "100%" }} />
                 </div>
 
-                {/* 🟢 Input Deadline Tambah Tugas dengan step="1" untuk menampilkan detik */}
                 <div className="input-group">
                   <label style={{ fontSize: "12px", color: "#aaa" }}>Deadline</label>
                   <input 
@@ -1318,9 +1399,9 @@ export default function AdminPage() {
                               <button 
                                 onClick={() => handleToggleTaskStatus(t.id, t.is_active !== false)} 
                                 style={{ 
-                                  background: t.is_active !== false ? "transparent" : "transparent", 
-                                  border: t.is_active !== false ? "1px solid #FAFAFA" : "1.5px solid #fafafa", 
-                                  color: t.is_active !== false ? "#FAFAFA" : "#FAFAFA", 
+                                  background: "transparent", 
+                                  border: "1px solid #fafafa", 
+                                  color: "#FAFAFA", 
                                   padding: "6px 12px", 
                                   borderRadius: "50px", 
                                   cursor: "pointer",
@@ -1384,9 +1465,9 @@ export default function AdminPage() {
                               <button 
                                 onClick={() => handleToggleAnnStatus(a.id, a.title, a.is_active !== false)} 
                                 style={{ 
-                                  background: a.is_active !== false ? "transparent" : "transparent", 
-                                  border: a.is_active !== false ? "1px solid #FAFAFA" : "1.5px solid #fafafa", 
-                                  color: a.is_active !== false ? "#FAFAFA" : "#FAFAFA", 
+                                  background: "transparent", 
+                                  border: "1px solid #fafafa", 
+                                  color: "#FAFAFA", 
                                   padding: "6px 12px", 
                                   borderRadius: "50px", 
                                   cursor: "pointer",
@@ -1461,7 +1542,6 @@ export default function AdminPage() {
                 />
               </div>
 
-              {/* 🟢 Input Deadline Edit Tugas dengan step="1" untuk menampilkan detik */}
               <div className="input-group">
                 <label style={{ fontSize: "11px", color: "#aaa" }}>Deadline</label>
                 <input 
