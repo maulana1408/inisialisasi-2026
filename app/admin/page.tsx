@@ -4,20 +4,19 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import Navbar from "@/components/Navbar";
-import { 
-  Trash2, 
-  Eye, 
-  Plus, 
-  Megaphone, 
-  FileSpreadsheet, 
-  ShieldAlert, 
-  Filter, 
-  Pencil, 
-  X, 
-  CheckCircle2, 
+import {
+  Eye,
+  Plus,
+  Megaphone,
+  FileSpreadsheet,
+  Filter,
+  Pencil,
+  X,
+  CheckCircle2,
   AlertCircle,
   UserCheck,
-  GraduationCap 
+  GraduationCap,
+  Search
 } from "lucide-react";
 
 export default function AdminPage() {
@@ -31,6 +30,7 @@ export default function AdminPage() {
   const [students, setStudents] = useState<any[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<{ [key: string]: boolean }>({});
   const [attendancePointsMap, setAttendancePointsMap] = useState<{ [key: string]: number }>({});
+  const [attendancePenaltyMap, setAttendancePenaltyMap] = useState<{ [key: string]: boolean }>({});
 
   // State Filter Rekap
   const [filterCategory, setFilterCategory] = useState<"all" | "individu" | "kelompok" | "angkatan">("all");
@@ -38,9 +38,11 @@ export default function AdminPage() {
   const [filterTaskTitle, setFilterTaskTitle] = useState<string>("all");
   const [filterKelompok, setFilterKelompok] = useState<string>("all");
 
-  // State Filter Presensi
+  // State Filter Presensi & Pencarian
   const [filterAttendanceStatus, setFilterAttendanceStatus] = useState<"all" | "present" | "absent">("all");
   const [filterAttendanceKelompok, setFilterAttendanceKelompok] = useState<string>("all");
+  const [attendanceFilterMode, setAttendanceFilterMode] = useState<"all" | "under80" | "above80">("all");
+  const [attendanceSearchQuery, setAttendanceSearchQuery] = useState("");
 
   // State Filter Evaluasi Akhir
   const [filterEvalPoints, setFilterEvalPoints] = useState<"all" | "complete" | "incomplete">("all");
@@ -166,14 +168,28 @@ export default function AdminPage() {
     }
 
     verifyAdmin();
-    loadAllData();
+    loadAllData().catch((err: any) => {
+      triggerToast("GAGAL MEMUAT DATA", err.message || "Tidak dapat memuat data admin.", true);
+    });
   }, []);
 
   const loadAllData = async () => {
-    const { data: taskData } = await supabase.from("tasks").select("*").order("created_at", { ascending: true });
-    const { data: annData } = await supabase.from("announcements").select("*").order("created_at", { ascending: true });
-    const { data: subData } = await supabase.from("submissions").select("*, users(nama, nim, kelompok)").order("submitted_at", { ascending: false });
-    const { data: userData } = await supabase.from("users").select("nim, nama, role, total_points, is_graduated, graduation_status, kelompok").neq("role", "admin").order("total_points", { ascending: false });
+    const [tasksRes, annRes, subRes, usersRes] = await Promise.all([
+      supabase.from("tasks").select("*").order("created_at", { ascending: true }),
+      supabase.from("announcements").select("*").order("created_at", { ascending: true }),
+      supabase.from("submissions").select("*, users(nama, nim, kelompok)").order("submitted_at", { ascending: false }),
+      supabase.from("users").select("nim, nama, role, total_points, is_graduated, graduation_status, kelompok").neq("role", "admin").order("total_points", { ascending: false }),
+    ]);
+
+    if (tasksRes.error) throw tasksRes.error;
+    if (annRes.error) throw annRes.error;
+    if (subRes.error) throw subRes.error;
+    if (usersRes.error) throw usersRes.error;
+
+    const taskData = tasksRes.data;
+    const annData = annRes.data;
+    const subData = subRes.data;
+    const userData = usersRes.data;
 
     if (taskData) {
       setTasks(taskData);
@@ -186,76 +202,138 @@ export default function AdminPage() {
     if (userData) setStudents(userData);
   };
 
+  const loadAttendance = async () => {
+    if (!currentNim) return;
+
+    const { data, error } = await supabase
+      .from("attendance")
+      .select("user_nim, session_name, is_present, awarded_points, points_awarded")
+      .eq("session_name", selectedSession);
+
+    if (error) {
+      triggerToast("GAGAL MEMUAT PRESENSI", error.message, true);
+      setAttendanceRecords({});
+      setAttendancePointsMap({});
+      return;
+    }
+
+    const attMap: { [key: string]: boolean } = {};
+    const ptsMap: { [key: string]: number } = {};
+
+    (data || []).forEach((att) => {
+      attMap[att.user_nim] = !!att.is_present;
+      ptsMap[att.user_nim] = Number(att.awarded_points ?? att.points_awarded ?? 0);
+    });
+
+    setAttendanceRecords(attMap);
+    setAttendancePointsMap(ptsMap);
+
+    const { data: penaltyData, error: penaltyError } = await supabase
+      .from("attendance_penalties")
+      .select("kelompok")
+      .eq("session_name", selectedSession);
+
+    if (!penaltyError) {
+      const penaltyMap: { [key: string]: boolean } = {};
+      (penaltyData || []).forEach((item) => {
+        penaltyMap[item.kelompok] = true;
+      });
+      setAttendancePenaltyMap(penaltyMap);
+    }
+
+    const firstPoints = (data || []).find(
+      (item) => item.awarded_points !== null && item.awarded_points !== undefined
+    );
+    if (firstPoints) setSessionPoints(Number(firstPoints.awarded_points));
+  };
+
   useEffect(() => {
     if (!currentNim) return;
-    async function loadAttendance() {
-      const { data } = await supabase
-        .from("attendance")
-        .select("user_nim, is_present, awarded_points")
-        .eq("session_name", selectedSession);
-
-      if (data && data.length > 0) {
-        const attMap: { [key: string]: boolean } = {};
-        const ptsMap: { [key: string]: number } = {};
-
-        data.forEach((att) => {
-          attMap[att.user_nim] = att.is_present;
-          ptsMap[att.user_nim] = att.awarded_points || 0;
-        });
-
-        setAttendanceRecords(attMap);
-        setAttendancePointsMap(ptsMap);
-
-        if (data[0].awarded_points !== undefined && data[0].awarded_points !== null) {
-          setSessionPoints(data[0].awarded_points);
-        }
-      } else {
-        setAttendanceRecords({});
-        setAttendancePointsMap({});
-      }
-    }
     loadAttendance();
   }, [selectedSession, currentNim]);
 
-  // 🟢 FITUR BARU: Evaluasi Kehadiran Kelompok (< 80% Kurang 10 Poin)
-  const applyGroupAttendancePenaltyIfNeeded = async (session: string, targetKelompok: string) => {
-    const groupStudents = students.filter((s) => s.kelompok === targetKelompok);
-    if (groupStudents.length === 0) return;
+  const getGroupAttendancePercentage = (kelompokName: string) => {
+    const members = students.filter((s) => s.kelompok === kelompokName);
+    if (members.length === 0) return 100;
+    const presentCount = members.filter((s) => !!attendanceRecords[s.nim]).length;
+    return (presentCount / members.length) * 100;
+  };
 
-    let presentCount = 0;
-    groupStudents.forEach((stu) => {
-      if (stu.nim === groupStudents[0].nim) {
-        // Cek status saat ini
-      }
-      if (attendanceRecords[stu.nim]) presentCount++;
-    });
+  const under80Groups = listKelompok.filter((kel) => getGroupAttendancePercentage(kel) < 80);
+  const above80Groups = listKelompok.filter((kel) => getGroupAttendancePercentage(kel) >= 80);
 
-    const percentage = (presentCount / groupStudents.length) * 100;
+  const recalculateUserTotalPoints = async (nim: string) => {
+    const { data: userData, error: userError } = await supabase
+      .from("users")
+      .select("kelompok")
+      .eq("nim", nim)
+      .single();
 
-    // Jika kehadiran kelompok di bawah 80%, kurangi poin presensi masing-masing anggota sebesar 10 poin
-    if (percentage < 80) {
-      for (const stu of groupStudents) {
-        const currentAttPts = attendancePointsMap[stu.nim] || 375;
-        const penalizedPts = Math.max(0, currentAttPts - 10);
-        
-        await supabase
-          .from("attendance")
-          .update({ awarded_points: penalizedPts })
-          .eq("user_nim", stu.nim)
-          .eq("session_name", session);
+    if (userError || !userData) throw userError || new Error(`Mahasiswa ${nim} tidak ditemukan.`);
 
-        await recalculateUserTotalPoints(stu.nim);
-      }
-      triggerToast("PENALTI KELOMPOK", `Kehadiran kelompok ${targetKelompok} di bawah 80% (${percentage.toFixed(0)}%). Seluruh anggota dikurangi 10 poin!`, true);
+    const { data: taskAwards, error: taskError } = await supabase
+      .from("task_awards")
+      .select("awarded_points")
+      .eq("user_nim", nim)
+      .eq("is_validated", true);
+
+    if (taskError) throw taskError;
+
+    const { data: attPointsData, error: attError } = await supabase
+      .from("attendance")
+      .select("awarded_points, points_awarded")
+      .eq("user_nim", nim);
+
+    if (attError) throw attError;
+
+    const { data: penalties, error: penaltyError } = await supabase
+      .from("attendance_penalties")
+      .select("penalty_points")
+      .eq("kelompok", userData.kelompok);
+
+    if (penaltyError) throw penaltyError;
+
+    const totalTaskP = (taskAwards || []).reduce(
+      (acc, curr) => acc + Number(curr.awarded_points || 0),
+      0
+    );
+
+    const totalAttP = (attPointsData || []).reduce(
+      (acc, curr) => acc + Number(curr.awarded_points ?? curr.points_awarded ?? 0),
+      0
+    );
+
+    const totalPenalty = (penalties || []).reduce(
+      (acc, curr) => acc + Number(curr.penalty_points || 0),
+      0
+    );
+
+    const grandTotal = totalTaskP + totalAttP - totalPenalty;
+
+    const { error: updateError } = await supabase
+      .from("users")
+      .update({ total_points: grandTotal })
+      .eq("nim", nim);
+
+    if (updateError) throw updateError;
+
+    return grandTotal;
+  };
+
+  const recalculateManyUsers = async (nims: string[]) => {
+    const uniqueNims = Array.from(new Set(nims.filter(Boolean)));
+    for (const nim of uniqueNims) {
+      await recalculateUserTotalPoints(nim);
     }
   };
 
-  const handleAttendanceToggle = async (nim: string, currentStatus: boolean) => {
-    const nextStatus = !currentStatus;
-    const currentPoints = nextStatus ? (attendancePointsMap[nim] || Number(sessionPoints) || 375) : 0;
-    
-    setAttendanceRecords((prev) => ({ ...prev, [nim]: nextStatus }));
-    setAttendancePointsMap((prev) => ({ ...prev, [nim]: currentPoints }));
+  const handleAttendanceToggle = async (nim: string, currentIsPresent: boolean) => {
+    const nextIsPresent = !currentIsPresent;
+    const defaultPoints = Number(sessionPoints) || 375;
+    const newPoints = nextIsPresent ? defaultPoints : 0;
+
+    setAttendanceRecords((prev) => ({ ...prev, [nim]: nextIsPresent }));
+    setAttendancePointsMap((prev) => ({ ...prev, [nim]: newPoints }));
 
     const { error } = await supabase
       .from("attendance")
@@ -263,21 +341,29 @@ export default function AdminPage() {
         {
           user_nim: nim,
           session_name: selectedSession,
-          is_present: nextStatus,
-          awarded_points: currentPoints
+          is_present: nextIsPresent,
+          awarded_points: newPoints,
+          points_awarded: newPoints,
         },
-        { onConflict: 'user_nim,session_name' }
+        { onConflict: "user_nim,session_name" }
       );
 
     if (error) {
-      triggerToast("GAGAL SIMPAN", error.message, true);
-    } else {
+      setAttendanceRecords((prev) => ({ ...prev, [nim]: currentIsPresent }));
+      triggerToast("GAGAL UPDATE KEHADIRAN", error.message, true);
+      return;
+    }
+
+    try {
       await recalculateUserTotalPoints(nim);
-      const studentObj = students.find((s) => s.nim === nim);
-      if (studentObj && studentObj.kelompok) {
-        await applyGroupAttendancePenaltyIfNeeded(selectedSession, studentObj.kelompok);
-      }
-      loadAllData();
+      triggerToast(
+        nextIsPresent ? "DITANDAI HADIR" : "DITANDAI TIDAK HADIR",
+        `${nim} berhasil diperbarui untuk sesi ${selectedSession}.`,
+        false
+      );
+      await loadAllData();
+    } catch (err: any) {
+      triggerToast("TOTAL POIN GAGAL DIHITUNG", err.message, true);
     }
   };
 
@@ -294,40 +380,94 @@ export default function AdminPage() {
           user_nim: nim,
           session_name: selectedSession,
           is_present: isPresent,
-          awarded_points: newPoints
+          awarded_points: newPoints,
+          points_awarded: newPoints,
         },
-        { onConflict: 'user_nim,session_name' }
+        { onConflict: "user_nim,session_name" }
       );
 
     if (error) {
       triggerToast("GAGAL SIMPAN POIN", error.message, true);
-    } else {
+      return;
+    }
+
+    try {
       await recalculateUserTotalPoints(nim);
       triggerToast("POIN DIPERBARUI", `Poin presensi ${nim} diset ke ${newPoints} poin!`, false);
-      loadAllData();
+      await loadAllData();
+    } catch (err: any) {
+      triggerToast("TOTAL POIN GAGAL DIHITUNG", err.message, true);
     }
   };
 
-  const recalculateUserTotalPoints = async (nim: string) => {
-    const { data: subPointsData } = await supabase
-      .from("submissions")
-      .select("awarded_points")
-      .eq("user_nim", nim)
-      .eq("is_validated", true);
+  const handleBatchPenalizeFilteredGroups = async () => {
+    setLoading(true);
 
-    const { data: attPointsData } = await supabase
-      .from("attendance")
-      .select("awarded_points")
-      .eq("user_nim", nim);
+    try {
+      let targetGroups = under80Groups;
 
-    const totalTaskP = subPointsData?.reduce((acc, curr) => acc + (curr.awarded_points || 0), 0) || 0;
-    const totalAttP = attPointsData?.reduce((acc, curr) => acc + (curr.awarded_points || 0), 0) || 0;
-    const grandTotal = totalTaskP + totalAttP;
+      if (filterAttendanceKelompok !== "all") {
+        if (getGroupAttendancePercentage(filterAttendanceKelompok) >= 80) {
+          triggerToast(
+            "KELOMPOK TIDAK MEMENUHI SYARAT",
+            `${filterAttendanceKelompok} memiliki kehadiran ${getGroupAttendancePercentage(filterAttendanceKelompok).toFixed(0)}%. Penalti hanya untuk < 80%.`,
+            true
+          );
+          return;
+        }
+        targetGroups = [filterAttendanceKelompok];
+      }
 
-    await supabase
-      .from("users")
-      .update({ total_points: grandTotal })
-      .eq("nim", nim);
+      if (targetGroups.length === 0) {
+        triggerToast("TIDAK ADA TARGET", "Tidak ada kelompok dengan kehadiran di bawah 80% pada sesi ini.", true);
+        return;
+      }
+
+      const { data: existingPenalties, error: existingPenaltyError } = await supabase
+        .from("attendance_penalties")
+        .select("kelompok")
+        .eq("session_name", selectedSession)
+        .in("kelompok", targetGroups);
+
+      if (existingPenaltyError) throw existingPenaltyError;
+
+      const alreadyApplied = new Set((existingPenalties || []).map((row) => row.kelompok));
+      const groupsToApply = targetGroups.filter((group) => !alreadyApplied.has(group));
+
+      if (groupsToApply.length === 0) {
+        triggerToast("SUDAH DITERAPKAN", `Penalti ${selectedSession} sudah pernah diterapkan pada kelompok target.`, true);
+        return;
+      }
+
+      const penaltyRows = groupsToApply.map((kelompok) => ({
+        session_name: selectedSession,
+        kelompok,
+        penalty_points: 10,
+        attendance_percentage: getGroupAttendancePercentage(kelompok),
+      }));
+
+      const { error: insertPenaltyError } = await supabase
+        .from("attendance_penalties")
+        .insert(penaltyRows);
+
+      if (insertPenaltyError) throw insertPenaltyError;
+
+      const targetStudents = students.filter((stu) => groupsToApply.includes(stu.kelompok));
+      await recalculateManyUsers(targetStudents.map((stu) => stu.nim));
+
+      await loadAttendance();
+      await loadAllData();
+
+      triggerToast(
+        "PENALTI BERHASIL",
+        `-10 poin diterapkan ke seluruh anggota dari ${groupsToApply.length} kelompok yang kehadirannya di bawah 80%.`,
+        false
+      );
+    } catch (err: any) {
+      triggerToast("GAGAL PENALTI", err.message || "Terjadi kesalahan saat memproses penalti massal.", true);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleGraduationToggle = async (nim: string, currentGraduatedState: boolean) => {
@@ -384,16 +524,29 @@ export default function AdminPage() {
 
   const handleSaveSessionPoints = async () => {
     const pointsVal = Number(sessionPoints) || 0;
+
     const { error } = await supabase
       .from("attendance")
-      .update({ awarded_points: pointsVal })
+      .update({
+        awarded_points: pointsVal,
+        points_awarded: pointsVal,
+      })
       .eq("session_name", selectedSession)
       .eq("is_present", true);
 
     if (error) {
       triggerToast("GAGAL", error.message, true);
-    } else {
+      return;
+    }
+
+    try {
+      const presentStudents = students.filter((stu) => attendanceRecords[stu.nim]);
+      await recalculateManyUsers(presentStudents.map((stu) => stu.nim));
+      await loadAttendance();
+      await loadAllData();
       triggerToast("POIN DIPERBARUI", `Berhasil mengatur ${pointsVal} poin untuk sesi ${selectedSession}!`, false);
+    } catch (err: any) {
+      triggerToast("TOTAL POIN GAGAL DIHITUNG", err.message, true);
     }
   };
 
@@ -589,74 +742,109 @@ export default function AdminPage() {
     ];
   };
 
-  // 🟢 FITUR BARU: Distribusi Nilai Tugas Otomatis (Kelompok & Angkatan)
   const handleTaskPointOptionChange = async (submissionId: string, targetNim: string, newPoints: number) => {
-    const isValidated = newPoints > 0;
     const currentSub = submissions.find((s) => s.id === submissionId);
-    const targetTask = currentSub ? tasksMap[currentSub.task_id] : null;
-    const taskCat = targetTask?.category?.toLowerCase() || "individu";
-    const targetKelompok = currentSub?.users?.kelompok;
-
-    // 1. Update pengumpulan utama yang dipilih admin
-    const { error } = await supabase
-      .from("submissions")
-      .update({
-        is_validated: isValidated,
-        awarded_points: newPoints
-      })
-      .eq("id", submissionId);
-
-    if (error) {
-      triggerToast("GAGAL SIMPAN POIN", error.message, true);
+    if (!currentSub) {
+      triggerToast("DATA TIDAK DITEMUKAN", "Submission yang dipilih tidak ditemukan.", true);
       return;
     }
 
-    await recalculateUserTotalPoints(targetNim);
+    const targetTask = tasksMap[currentSub.task_id];
+    const taskCat = String(targetTask?.category || "individu").toLowerCase();
+    const targetKelompok = currentSub?.users?.kelompok;
+    const isValidated = newPoints > 0;
 
-    // 2. Distribusi otomatis jika kategori KELOMPOK atau ANGKATAN
-    if (taskCat === "kelompok" && targetKelompok) {
-      const groupSubmissions = submissions.filter(
-        (s) => s.task_id === currentSub.task_id && s.users?.kelompok === targetKelompok && s.id !== submissionId
-      );
+    setLoading(true);
+    try {
+      const { error: submissionError } = await supabase
+        .from("submissions")
+        .update({
+          is_validated: isValidated,
+          awarded_points: newPoints,
+        })
+        .eq("id", submissionId);
 
-      for (const sub of groupSubmissions) {
-        await supabase
-          .from("submissions")
-          .update({
-            is_validated: isValidated,
-            awarded_points: newPoints
-          })
-          .eq("id", sub.id);
+      if (submissionError) throw submissionError;
 
-        if (sub.user_nim) {
-          await recalculateUserTotalPoints(sub.user_nim);
+      let recipients = [{ nim: targetNim }];
+      let distributionType = "individu";
+
+      if (taskCat === "kelompok") {
+        if (!targetKelompok) {
+          throw new Error("Mahasiswa perwakilan belum memiliki kelompok.");
         }
-      }
-      triggerToast("DISTRIBUSI KELOMPOK", `Nilai tugas kelompok ${targetKelompok} berhasil didistribusikan ke seluruh anggota!`, false);
-    } else if (taskCat === "angkatan") {
-      const batchSubmissions = submissions.filter(
-        (s) => s.task_id === currentSub.task_id && s.id !== submissionId
-      );
 
-      for (const sub of batchSubmissions) {
-        await supabase
-          .from("submissions")
-          .update({
-            is_validated: isValidated,
-            awarded_points: newPoints
-          })
-          .eq("id", sub.id);
+        const { data, error } = await supabase
+          .from("users")
+          .select("nim")
+          .eq("kelompok", targetKelompok)
+          .neq("role", "admin");
 
-        if (sub.user_nim) {
-          await recalculateUserTotalPoints(sub.user_nim);
-        }
+        if (error) throw error;
+        recipients = data || [];
+        distributionType = "kelompok";
+      } else if (taskCat === "angkatan") {
+        const { data, error } = await supabase
+          .from("users")
+          .select("nim")
+          .neq("role", "admin");
+
+        if (error) throw error;
+        recipients = data || [];
+        distributionType = "angkatan";
       }
-      triggerToast("DISTRIBUSI ANGKATAN", "Nilai tugas angkatan berhasil didistribusikan ke seluruh mahasiswa!", false);
-    } else {
-      triggerToast("POIN PENUGASAN DIUBAH", `Tugas ${targetNim} diset ke ${newPoints} poin!`, false);
+
+      const recipientNims = Array.from(new Set(recipients.map((item) => item.nim).filter(Boolean)));
+
+      if (newPoints <= 0) {
+        const { error: deleteAwardsError } = await supabase
+          .from("task_awards")
+          .delete()
+          .eq("task_id", currentSub.task_id)
+          .in("user_nim", recipientNims);
+
+        if (deleteAwardsError) throw deleteAwardsError;
+      } else {
+        const awardRows = recipientNims.map((nim) => ({
+          task_id: currentSub.task_id,
+          user_nim: nim,
+          awarded_points: newPoints,
+          is_validated: true,
+          source_submission_id: submissionId,
+          distribution_type: distributionType,
+          recorded_at: new Date().toISOString(),
+        }));
+
+        const { error: awardError } = await supabase
+          .from("task_awards")
+          .upsert(awardRows, { onConflict: "task_id,user_nim" });
+
+        if (awardError) throw awardError;
+      }
+
+      await recalculateManyUsers(recipientNims);
+      await loadAllData();
+
+      if (taskCat === "kelompok") {
+        triggerToast(
+          "DISTRIBUSI KELOMPOK",
+          `Nilai ${newPoints} poin dari tugas ini dibagikan ke ${recipientNims.length} anggota ${targetKelompok}.`,
+          false
+        );
+      } else if (taskCat === "angkatan") {
+        triggerToast(
+          "DISTRIBUSI ANGKATAN",
+          `Nilai ${newPoints} poin dari tugas ini dibagikan ke ${recipientNims.length} mahasiswa maba.`,
+          false
+        );
+      } else {
+        triggerToast("POIN PENUGASAN DIUBAH", `Tugas ${targetNim} diset ke ${newPoints} poin!`, false);
+      }
+    } catch (err: any) {
+      triggerToast("GAGAL DISTRIBUSI NILAI", err.message || "Terjadi kesalahan saat mendistribusikan nilai.", true);
+    } finally {
+      setLoading(false);
     }
-
-    loadAllData();
   };
 
   const getCleanViewUrl = (rawUrl: string) => {
@@ -666,13 +854,13 @@ export default function AdminPage() {
 
   const processedSubmissions = submissions.map((sub) => {
     const task = tasksMap[sub.task_id];
-    let isLate = sub.status ? sub.status.toUpperCase() === "TERLAMBAT" : false;
+    let isLate = false;
     let category = task?.category || "individu";
     let taskTitleDisplay = task?.title || sub.tugas_id || sub.task_id;
     let taskPointsValue = task?.points || 0;
     let userKelompok = sub.users?.kelompok || "-";
 
-    if (!sub.status && task && task.deadline) {
+    if (task && task.deadline && sub.submitted_at) {
       isLate = new Date(sub.submitted_at) > new Date(task.deadline);
     }
 
@@ -722,7 +910,22 @@ export default function AdminPage() {
       matchKelompok = stu.kelompok === filterAttendanceKelompok;
     }
 
-    return matchStatus && matchKelompok;
+    let matchAttendanceMode = true;
+    if (attendanceFilterMode === "under80") {
+      matchAttendanceMode = under80Groups.includes(stu.kelompok);
+    } else if (attendanceFilterMode === "above80") {
+      matchAttendanceMode = above80Groups.includes(stu.kelompok);
+    }
+
+    let matchSearch = true;
+    if (attendanceSearchQuery.trim() !== "") {
+      const q = attendanceSearchQuery.toLowerCase();
+      const nameMatch = (stu.nama || "").toLowerCase().includes(q);
+      const nimMatch = (stu.nim || "").toLowerCase().includes(q);
+      matchSearch = nameMatch || nimMatch;
+    }
+
+    return matchStatus && matchKelompok && matchAttendanceMode && matchSearch;
   });
 
   const scopedEvaluationStudents = students.filter((stu) => {
@@ -793,14 +996,13 @@ export default function AdminPage() {
                 minHeight: "38px",
                 marginBottom: "10px", 
                 background: "transparent", 
-                border: "2px solid #FF3333", 
+                border: "1px solid #FF3333", 
                 padding: "6px 12px", 
                 borderRadius: "20px", 
                 display: "inline-flex", 
                 alignItems: "center", 
                 gap: "6px" 
               }}>
-                <ShieldAlert size={0} style={{ color: "#FF3333" }} />
                 <span style={{ fontSize: "11px", color: "#FF3333", fontWeight: 700, textTransform: "uppercase" }}>
                   {userNama || "ADMIN UTAMA"}
                 </span>
@@ -1011,7 +1213,25 @@ export default function AdminPage() {
                   </div>
                 </div>
 
-                <div style={{ display: "flex", alignItems: "flex-end", gap: "10px", width: "100%", flexWrap: "wrap", marginTop: "10px" }}>
+                {/* Kolom Cari Nama/NIM Panjang di Atas */}
+                <div style={{ display: "flex", width: "100%", gap: "10px", alignItems: "flex-end" }}>
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Cari Nama / NIM Mahasiswa:</label>
+                    <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                      <Search size={15} color="#888" style={{ position: "absolute", left: "14px" }} />
+                      <input 
+                        type="text" 
+                        placeholder="Ketik nama lengkap atau NIM mahasiswa..."
+                        value={attendanceSearchQuery}
+                        onChange={(e) => setAttendanceSearchQuery(e.target.value)}
+                        style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px 14px 10px 38px", borderRadius: "50px", fontSize: "13px", fontWeight: 600, width: "100%", outline: "none" }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sesi, Kelompok, Filter Status, Poin, & Tombol Simpan */}
+                <div style={{ display: "flex", alignItems: "flex-end", gap: "10px", width: "100%", flexWrap: "wrap", marginTop: "4px" }}>
                   <div style={{ flex: 1.5, minWidth: "160px", display: "flex", flexDirection: "column", gap: "4px" }}>
                     <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Pilih Sesi Kehadiran:</label>
                     <select 
@@ -1042,27 +1262,6 @@ export default function AdminPage() {
                     </select>
                   </div>
 
-                  <div style={{ flex: 1, minWidth: "130px", display: "flex", flexDirection: "column", gap: "4px" }}>
-                    <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Poin Kehadiran:</label>
-                    <input 
-                      type="number" 
-                      placeholder="Default: 375"
-                      value={sessionPoints} 
-                      onChange={(e) => setSessionPoints(e.target.value === "" ? "" : Number(e.target.value))} 
-                      style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fff", padding: "10px", borderRadius: "50px", fontSize: "13px", fontWeight: 600, width: "100%" }} 
-                    />
-                  </div>
-
-                  <div style={{ flexShrink: 0 }}>
-                    <button 
-                      type="button"
-                      onClick={handleSaveSessionPoints}
-                      style={{ background: "transparent", border: "1px solid #fafafa", color: "#fafafa", padding: "10px 16px", borderRadius: "50px", fontSize: "12px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
-                    >
-                      Simpan Poin
-                    </button>
-                  </div>
-
                   <div style={{ flex: 1.2, minWidth: "140px", display: "flex", flexDirection: "column", gap: "4px" }}>
                     <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Filter Status:</label>
                     <select 
@@ -1070,11 +1269,97 @@ export default function AdminPage() {
                       onChange={(e: any) => setFilterAttendanceStatus(e.target.value)} 
                       style={{ background: "#0a0a0a", border: "1px solid #333", color: "#FAFAFA", padding: "10px", borderRadius: "50px", fontSize: "13px", fontWeight: 600, outline: "none", width: "100%" }}
                     >
-                      <option value="all">Semua Mahasiswa ({students.length})</option>
+                      <option value="all">Semua ({students.length})</option>
                       <option value="present">Hadir ({countPresent})</option>
                       <option value="absent">Tidak Hadir ({countAbsent})</option>
                     </select>
                   </div>
+
+                  <div style={{ flex: 1, minWidth: "110px", display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Poin Kehadiran:</label>
+                    <input 
+                      type="number" 
+                      placeholder="Default: 375"
+                      value={sessionPoints} 
+                      onChange={(e) => setSessionPoints(e.target.value === "" ? "" : Number(e.target.value))} 
+                      style={{ background: "#0a0a0a", border: "1px solid #333", color: "#fafafa", padding: "10px", borderRadius: "50px", fontSize: "13px", fontWeight: 600, width: "100%" }} 
+                    />
+                  </div>
+
+                  <div style={{ flexShrink: 0 }}>
+                    <button 
+                      type="button"
+                      onClick={handleSaveSessionPoints}
+                      style={{ background: "transparent", border: "1px solid #333", color: "#fafafa", padding: "10px 16px", borderRadius: "50px", fontSize: "13px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+                    >
+                      Simpan Poin
+                    </button>
+                  </div>
+                </div>
+
+                {/* Baris Filter Persentase Kehadiran Kelompok */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px", marginTop: "12px", background: "transparent", border: "1px solid #333", padding: "12px 16px", borderRadius: "50px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: "12px", color: "#aaa", fontWeight: 700, marginRight: "4px" }}>Kehadiran Kelompok:</span>
+                    
+                    <button
+                      type="button"
+                      onClick={() => setAttendanceFilterMode(attendanceFilterMode === "under80" ? "all" : "under80")}
+                      style={{
+                        background: attendanceFilterMode === "under80" ? "transparent" : "#0a0a0a",
+                        border: `1px solid ${attendanceFilterMode === "under80" ? "#FF3333" : "#333"}`,
+                        color: attendanceFilterMode === "under80" ? "#FF3333" : "#FAFAFA",
+                        padding: "6px 14px",
+                        borderRadius: "50px",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      di bawah 80% ({under80Groups.length})
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setAttendanceFilterMode(attendanceFilterMode === "above80" ? "all" : "above80")}
+                      style={{
+                        background: attendanceFilterMode === "above80" ? "transparent" : "#0a0a0a",
+                        border: `1px solid ${attendanceFilterMode === "above80" ? "#00FF88" : "#333"}`,
+                        color: attendanceFilterMode === "above80" ? "#00FF88" : "#FAFAFA",
+                        padding: "6px 14px",
+                        borderRadius: "50px",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      di atas 80% ({above80Groups.length})
+                    </button>
+                  </div>
+
+                  {attendanceFilterMode !== "all" && (
+                    <button
+                      type="button"
+                      onClick={handleBatchPenalizeFilteredGroups}
+                      disabled={loading}
+                      style={{
+                        background: "transparent",
+                        border: "1px solid #FF3333",
+                        color: "#FF3333",
+                        padding: "6px 14px",
+                        borderRadius: "50px",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        whiteSpace: "nowrap"
+                      }}
+                    >
+                      -10 Poin Semua Anggota Kelompok Terpilih
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1197,7 +1482,6 @@ export default function AdminPage() {
                   </p>
 
                   <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-                    {/* Filter Kelompok di Tab Evaluasi */}
                     <div style={{ width: "170px", display: "flex", flexDirection: "column", gap: "4px" }}>
                       <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Filter Kelompok:</label>
                       <select 
@@ -1212,7 +1496,6 @@ export default function AdminPage() {
                       </select>
                     </div>
 
-                    {/* Filter Status Poin di Tab Evaluasi */}
                     <div style={{ width: "230px", display: "flex", flexDirection: "column", gap: "4px" }}>
                       <label style={{ fontSize: "11px", color: "#aaa", fontWeight: 600 }}>Filter Poin:</label>
                       <select 
@@ -1622,7 +1905,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* TOAST NOTIFIKASI */}
+      {/* DYNAMIC ISLAND NOTIFICATION TOAST */}
       <div style={{ position: "fixed", top: "110px", left: "50%", transform: "translateX(-50%)", zIndex: 99999999, pointerEvents: "none", display: "flex", justifyContent: "center", alignItems: "center" }}>
         <div style={{
           background: "#0a0a0e",

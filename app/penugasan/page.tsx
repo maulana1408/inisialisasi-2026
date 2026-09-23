@@ -81,7 +81,6 @@ export default function PenugasanPage() {
     }, 4200);
   };
 
-  // Helper konversi datetime-local agar tidak tergeser zona waktu UTC
   const formatInputToISO = (datetimeLocalVal: string) => {
     if (!datetimeLocalVal) return "";
     const localDate = new Date(datetimeLocalVal);
@@ -96,7 +95,6 @@ export default function PenugasanPage() {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   };
 
-  // 🟢 Helper format waktu terkunci ke WIB dengan detik
   const formatDateTimeWIB = (dateString: string) => {
     if (!dateString) return "-";
     const d = new Date(dateString);
@@ -152,9 +150,7 @@ export default function PenugasanPage() {
         setUserPoints(data.total_points || 0);
         setIsGraduatedStatus(data.is_graduated || false);
         if (data.kelompok) setUserKelompok(data.kelompok);
-        if (data.graduation_status && typeof setGraduationLabel === "function") {
-          setGraduationLabel(data.graduation_status);
-        }
+        if (data.graduation_status) setGraduationLabel(data.graduation_status);
         if (data.nama) {
           setUserNama(data.nama);
           localStorage.setItem("user_nama", data.nama);
@@ -176,7 +172,7 @@ export default function PenugasanPage() {
 
       const { data: attData } = await supabase
         .from("attendance")
-        .select("session_name, is_present, awarded_points")
+        .select("session_name, is_present, awarded_points, points_awarded")
         .eq("user_nim", currentNim)
         .eq("is_present", true);
 
@@ -193,8 +189,9 @@ export default function PenugasanPage() {
 
         if (attData) {
           attData.forEach((att) => {
-            if (att.awarded_points) {
-              calculatedTotalPoints += Number(att.awarded_points);
+            const pts = att.awarded_points ?? att.points_awarded;
+            if (pts) {
+              calculatedTotalPoints += Number(pts);
             }
           });
         }
@@ -264,6 +261,7 @@ export default function PenugasanPage() {
     return `https://${rawUrl}`;
   };
 
+  // 🟢 FUNGSI PENGIRIMAN TUGAS YANG DIOPTIMALKAN (TANPA FREEZE UNTUK LINK PANJANG/DRIVE)
   const handleUploadSubmit = async () => {
     if (!activeTaskId || !currentNim) return;
 
@@ -284,6 +282,7 @@ export default function PenugasanPage() {
     setIsUploading(true);
 
     try {
+      // 1. Mode Pengiriman Tautan (Link) - Dioptimalkan untuk Link Google Drive Panjang
       if (submissionMode === "link") {
         const cleanLink = submissionLink.trim();
         if (!cleanLink) {
@@ -292,8 +291,8 @@ export default function PenugasanPage() {
           return;
         }
 
-        const validUrlPattern = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([/\w .-]*)*\/?$/i;
-        if (!validUrlPattern.test(cleanLink)) {
+        // Validasi URL ringan tanpa regex berat yang menyebabkan freeze
+        if (!cleanLink.startsWith("http://") && !cleanLink.startsWith("https://") && !cleanLink.includes(".")) {
           triggerToast("FORMAT LINK TIDAK VALID", "Pastikan menyertakan tautan yang benar (contoh: https://drive.google.com/...)", true);
           setIsUploading(false);
           return;
@@ -305,23 +304,34 @@ export default function PenugasanPage() {
 
         const fileNameDisplay = `Tautan: ${formattedUrl.length > 35 ? formattedUrl.substring(0, 35) + "..." : formattedUrl}`;
 
+        // Masukkan data ke tabel submissions secara langsung
         const { error: dbError } = await supabase
           .from('submissions')
-          .upsert(
-            {
-              task_id: activeTaskId,
-              user_nim: currentNim,
-              nama: finalNama,
-              tugas_id: targetTask?.title || activeTaskId,
+          .insert({
+            task_id: activeTaskId,
+            user_nim: currentNim,
+            nama: finalNama,
+            tugas_id: targetTask?.title || activeTaskId,
+            file_url: formattedUrl,
+            file_name: fileNameDisplay,
+            submitted_at: submittedAt,
+            status: statusText,
+            is_validated: false,
+            awarded_points: 0
+          });
+
+        if (dbError) {
+          await supabase
+            .from('submissions')
+            .update({
               file_url: formattedUrl,
               file_name: fileNameDisplay,
               submitted_at: submittedAt,
-              status: statusText,
-            },
-            { onConflict: 'task_id,user_nim' }
-          );
-
-        if (dbError) throw new Error(`Database error: ${dbError.message}`);
+              status: statusText
+            })
+            .eq('task_id', activeTaskId)
+            .eq('user_nim', currentNim);
+        }
 
         setSubmissionsMap((prev) => ({
           ...prev,
@@ -336,112 +346,119 @@ export default function PenugasanPage() {
           }
         }));
 
+        setIsUploading(false);
         setIsUploadModalOpen(false);
         setSubmissionLink("");
-        fetchData();
 
         if (isLate) {
           triggerToast("TAUTAN DIKIRIM (TERLAMBAT)", "Tautan berhasil dikirim namun melewati batas deadline!", true);
         } else {
           triggerToast("TAUTAN BERHASIL DIKIRIM", "Tugas via tautan berhasil dikirim tepat waktu!", false);
         }
+        return;
+      } 
 
-      } else {
-        if (!selectedFile) {
-          triggerToast("GAGAL MENGIRIM BERKAS", "Silakan pilih berkas tugas Anda terlebih dahulu!", true);
-          setIsUploading(false);
-          return;
-        }
+      // 2. Mode Pengiriman Berkas Fisik (File)
+      if (!selectedFile) {
+        triggerToast("GAGAL MENGIRIM BERKAS", "Silakan pilih berkas tugas Anda terlebih dahulu!", true);
+        setIsUploading(false);
+        return;
+      }
 
-        const MAX_FILE_SIZE_MB = 25;
-        if (selectedFile.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-          triggerToast("UKURAN FILE TERLALU BESAR", `Maksimal ukuran berkas adalah ${MAX_FILE_SIZE_MB}MB.`, true);
-          setIsUploading(false);
-          return;
-        }
+      const MAX_FILE_SIZE_MB = 25;
+      if (selectedFile.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+        triggerToast("UKURAN FILE TERLALU BESAR", `Maksimal ukuran berkas adalah ${MAX_FILE_SIZE_MB}MB.`, true);
+        setIsUploading(false);
+        return;
+      }
 
-        const sanitize = (text: string) => {
-          return text.trim().toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-");
-        };
+      const sanitize = (text: string) => {
+        return text.trim().toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-");
+      };
 
-        const cleanNim = sanitize(currentNim);
-        const cleanNama = sanitize(finalNama);
-        const cleanKategori = sanitize(targetTask?.category || "tugas");
-        const cleanJudul = sanitize(targetTask?.title || activeTaskId);
-        const fileExt = selectedFile.name.split('.').pop()?.toLowerCase() || 'pdf';
+      const cleanNim = sanitize(currentNim);
+      const cleanNama = sanitize(finalNama);
+      const cleanKategori = sanitize(targetTask?.category || "tugas");
+      const cleanJudul = sanitize(targetTask?.title || activeTaskId);
+      const fileExt = selectedFile.name.split('.').pop()?.toLowerCase() || 'pdf';
 
-        const timestampTag = Date.now();
-        const formattedFileName = `${cleanNim}_${cleanNama}_${cleanKategori}_${cleanJudul}_${timestampTag}.${fileExt}`;
-        const filePath = `${activeTaskId}/${cleanNim}_${cleanNama}_${cleanKategori}_${cleanJudul}.${fileExt}`;
+      const timestampTag = Date.now();
+      const formattedFileName = `${cleanNim}_${cleanNama}_${cleanKategori}_${cleanJudul}_${timestampTag}.${fileExt}`;
+      const filePath = `${activeTaskId}/${cleanNim}_${cleanNama}_${cleanKategori}_${cleanJudul}.${fileExt}`;
 
-        await supabase.storage.from('task-files').remove([filePath]);
+      await supabase.storage.from('task-files').remove([filePath]);
 
-        const { error: uploadError } = await supabase.storage
-          .from('task-files')
-          .upload(filePath, selectedFile, { 
-            upsert: true, 
-            cacheControl: '3600',
-            contentType: selectedFile.type,
-            headers: {
-              'Content-Disposition': `inline; filename="${formattedFileName}"`
-            }
-          });
+      const { error: uploadError } = await supabase.storage
+        .from('task-files')
+        .upload(filePath, selectedFile, { 
+          upsert: true, 
+          cacheControl: '3600',
+          contentType: selectedFile.type
+        });
 
-        if (uploadError) throw new Error(`Storage error: ${uploadError.message}`);
+      if (uploadError) throw new Error(`Storage error: ${uploadError.message}`);
 
-        const { data: urlData } = supabase.storage
-          .from('task-files')
-          .getPublicUrl(filePath);
+      const { data: urlData } = supabase.storage
+        .from('task-files')
+        .getPublicUrl(filePath);
 
-        const downloadPublicUrl = `${urlData.publicUrl}?v=${timestampTag}&view=true`;
+      const downloadPublicUrl = `${urlData.publicUrl}?v=${timestampTag}&view=true`;
 
-        const { error: dbError } = await supabase
+      const { error: dbError } = await supabase
+        .from('submissions')
+        .insert({
+          task_id: activeTaskId,
+          user_nim: currentNim,
+          nama: finalNama,
+          tugas_id: targetTask?.title || activeTaskId,
+          file_url: downloadPublicUrl,
+          file_name: formattedFileName,
+          submitted_at: submittedAt,
+          status: statusText,
+          is_validated: false,
+          awarded_points: 0
+        });
+
+      if (dbError) {
+        await supabase
           .from('submissions')
-          .upsert(
-            {
-              task_id: activeTaskId,
-              user_nim: currentNim,
-              nama: finalNama,
-              tugas_id: targetTask?.title || activeTaskId,
-              file_url: downloadPublicUrl,
-              file_name: formattedFileName,
-              submitted_at: submittedAt,
-              status: statusText,
-            },
-            { onConflict: 'task_id,user_nim' }
-          );
-
-        if (dbError) throw new Error(`Database error: ${dbError.message}`);
-
-        setSubmissionsMap((prev) => ({
-          ...prev,
-          [activeTaskId]: { 
-            ...prev[activeTaskId],
-            task_id: activeTaskId, 
-            submitted_at: submittedAt, 
-            file_url: downloadPublicUrl, 
+          .update({
+            file_url: downloadPublicUrl,
             file_name: formattedFileName,
-            status: statusText,
-            nama: finalNama
-          }
-        }));
+            submitted_at: submittedAt,
+            status: statusText
+          })
+          .eq('task_id', activeTaskId)
+          .eq('user_nim', currentNim);
+      }
 
-        setIsUploadModalOpen(false);
-        setSelectedFile(null);
-        fetchData();
-
-        if (isLate) {
-          triggerToast("BERKAS DIPERBARUI (TERLAMBAT)", "Tugas berhasil diunggah ulang namun melewati deadline!", true);
-        } else {
-          triggerToast("BERKAS DIPERBARUI", "Tugas berhasil diperbarui dan dikirim tepat waktu!", false);
+      setSubmissionsMap((prev) => ({
+        ...prev,
+        [activeTaskId]: { 
+          ...prev[activeTaskId],
+          task_id: activeTaskId, 
+          submitted_at: submittedAt, 
+          file_url: downloadPublicUrl, 
+          file_name: formattedFileName,
+          status: statusText,
+          nama: finalNama
         }
+      }));
+
+      setIsUploading(false);
+      setIsUploadModalOpen(false);
+      setSelectedFile(null);
+
+      if (isLate) {
+        triggerToast("BERKAS DIPERBARUI (TERLAMBAT)", "Tugas berhasil diunggah ulang namun melewati deadline!", true);
+      } else {
+        triggerToast("BERKAS DIPERBARUI", "Tugas berhasil diperbarui dan dikirim tepat waktu!", false);
       }
 
     } catch (error: any) {
       console.error("Upload Error:", error);
-      triggerToast("GAGAL MENGIRIM", error.message || "Terjadi kesalahan saat memproses pengumpulan.", true);
-    } finally {
       setIsUploading(false);
+      triggerToast("GAGAL MENGIRIM", error.message || "Terjadi kesalahan saat memproses pengumpulan.", true);
     }
   };
 
@@ -556,7 +573,6 @@ export default function PenugasanPage() {
     const userSubmission = submissionsMap[task.id];
     const themeColor = isLate ? "#FF3333" : "#00FF88";
 
-    // Bersihkan teks ketentuan agar tampil sebagai paragraf polos
     let formattedRulesText = "";
     if (Array.isArray(task.rules)) {
       formattedRulesText = task.rules
@@ -615,25 +631,25 @@ export default function PenugasanPage() {
                 <h3 style={{ margin: 0, fontSize: "16px", color: "#FAFAFA", fontWeight: 700 }}>{task.title}</h3>
                 
                 {userSubmission && userSubmission.is_validated && (
-                  <span style={{ background: isLate ? "transparent" : "transparent", border: `1px solid ${themeColor}`, color: themeColor, fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "50px", letterSpacing: "1px", textTransform: "uppercase", display: "inline-flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
+                  <span style={{ border: `1px solid ${themeColor}`, color: themeColor, fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "50px", letterSpacing: "1px", textTransform: "uppercase", display: "inline-flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
                     {isLate ? <AlertCircle style={{ width: "12px", height: "12px" }} /> : <CheckCircle2 style={{ width: "12px", height: "12px" }} />} TERVALIDASI
                   </span>
                 )}
 
                 {userSubmission && !userSubmission.is_validated && (
-                  <span style={{ background: "transparent", border: "2px solid #1B22A7", color: "#fafafa", fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "50px", letterSpacing: "1px", textTransform: "uppercase", display: "inline-flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
+                  <span style={{ border: "2px solid #1B22A7", color: "#fafafa", fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "50px", letterSpacing: "1px", textTransform: "uppercase", display: "inline-flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
                     ⏳ MENUNGGU VALIDASI
                   </span>
                 )}
 
                 {isSubmitted && !isLate && (
-                  <span style={{ background: "transparent", border: "1px solid #00FF88", color: "#00FF88", fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "50px", letterSpacing: "1px", textTransform: "uppercase", display: "inline-flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
+                  <span style={{ border: "1px solid #00FF88", color: "#00FF88", fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "50px", letterSpacing: "1px", textTransform: "uppercase", display: "inline-flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
                     <CheckCircle2 style={{ width: "12px", height: "12px" }} /> TEPAT WAKTU
                   </span>
                 )}
 
                 {(isSubmitted && isLate) || (!isSubmitted && isLate) ? (
-                  <span style={{ background: "transparent", border: "1px solid #FF3333", color: "#FF3333", fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "50px", letterSpacing: "1px", textTransform: "uppercase", display: "inline-flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
+                  <span style={{ border: "1px solid #FF3333", color: "#FF3333", fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "50px", letterSpacing: "1px", textTransform: "uppercase", display: "inline-flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
                     <AlertCircle style={{ width: "12px", height: "12px" }} /> TERLAMBAT
                   </span>
                 ) : null}
@@ -685,7 +701,7 @@ export default function PenugasanPage() {
             </div>
 
             {userSubmission && (
-              <div style={{ marginTop: "15px", background: isLate ? "transparent" : "transparent", border: `1px solid ${themeColor}`, borderRadius: "50px", padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
+              <div style={{ marginTop: "15px", border: `1px solid ${themeColor}`, borderRadius: "50px", padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", overflow: "hidden" }}>
                   <FileCheck size={18} style={{ color: themeColor, flexShrink: 0 }} />
                   <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
@@ -743,11 +759,14 @@ export default function PenugasanPage() {
       <div 
         className={`dashboard-container ${isAccessBlocked ? "blur-behind" : ""}`}
         style={{
-          maxWidth: "1200px",
+          maxWidth: "1360px",
           width: "100%",
           margin: "0 auto",
-          padding: "120px 24px 60px 24px",
-          boxSizing: "border-box"
+          padding: "120px 32px 60px 32px",
+          boxSizing: "border-box",
+          display: "flex",
+          gap: "24px",
+          alignItems: "flex-start"
         }}
       >
         <aside 
@@ -770,7 +789,7 @@ export default function PenugasanPage() {
               <div style={{ 
                 minHeight: "38px",
                 marginBottom: "10px", 
-                background: userRole === "admin" ? "transparent" : "transparent", 
+                background: "transparent", 
                 border: userRole === "admin" ? "2px solid #FF3333" : "2px solid #1B22A7", 
                 padding: "6px 12px", 
                 borderRadius: "20px", 
@@ -865,20 +884,20 @@ export default function PenugasanPage() {
           </div>
         </aside>
 
-        <main className="task-main-content">
+        <main className="task-main-content" style={{ flex: 1, minWidth: 0 }}>
           {activeTab === "pengumuman" && (
             <div className="tab-panel active">
               {dbAnnouncements.length > 0 ? (
                 dbAnnouncements.map((ann) => (
-                  <div key={ann.id} className="clickable-task-card" style={{ cursor: "default", marginBottom: "16px" }}>
-                    <div className="task-card-summary" style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                  <div key={ann.id} className="clickable-task-card" style={{ cursor: "default", marginBottom: "16px", width: "100%", boxSizing: "border-box" }}>
+                    <div className="task-card-summary" style={{ display: "flex", alignItems: "center", gap: "16px", width: "100%" }}>
                       <div className="task-icon-box" style={{ flexShrink: 0 }}>
                         <Megaphone style={{ width: "22px", height: "22px", color: "#fafafa" }} />
                       </div>
-                      <div className="task-summary-text" style={{ flex: 1 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <div>
-                            <h3 style={{ margin: 0, fontSize: "16px" }}>{ann.title}</h3>
+                      <div className="task-summary-text" style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <h3 style={{ margin: 0, fontSize: "16px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ann.title}</h3>
                             <span className="task-meta-subtitle" style={{ color: "#00FF88", fontWeight: 700, fontSize: "12px" }}>
                               {new Date(ann.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}
                             </span>
@@ -902,7 +921,8 @@ export default function PenugasanPage() {
                                 cursor: "pointer",
                                 display: "inline-flex",
                                 alignItems: "center",
-                                gap: "4px"
+                                gap: "4px",
+                                flexShrink: 0
                               }}
                             >
                               <Pencil size={12} /> EDIT
@@ -912,7 +932,7 @@ export default function PenugasanPage() {
                       </div>
                     </div>
                     <div className="detail-divider" style={{ margin: "12px 0", borderTop: "1px solid rgba(255, 255, 255, 0.1)" }} />
-                    <div style={{ color: "rgba(250, 250, 250, 0.85)", fontSize: "13.5px", lineHeight: 1.6, whiteSpace: "pre-line", textAlign: "left" }}>
+                    <div style={{ color: "rgba(250, 250, 250, 0.85)", fontSize: "13.5px", lineHeight: 1.6, whiteSpace: "pre-line", textAlign: "left", wordBreak: "break-word" }}>
                       <p style={{ margin: 0 }}>{renderContentWithLinks(ann.content)}</p>
                     </div>
                   </div>
@@ -1174,7 +1194,6 @@ export default function PenugasanPage() {
                 />
               </div>
 
-              {/* 🟢 Input Deadline Dilengkapi step="1" Agar Menampilkan Kolom Detik */}
               <div className="input-group">
                 <label style={{ fontSize: "11px", color: "#aaa" }}>Deadline</label>
                 <input 

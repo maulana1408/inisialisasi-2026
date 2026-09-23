@@ -56,9 +56,9 @@ section, .task-page-content {
 
 .container {
   width: 100%;
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 32px;
 }
 
 .flex-center {
@@ -130,32 +130,31 @@ a.btn-outline:active,
   left: 0;
   width: 100%;
   z-index: 999999 !important;
-  padding: 0 24px; 
-  transform: translateZ(0);
+  padding: 0 40px; /* Samakan padding luar navbar */
+  box-sizing: border-box;
   border: none;
 }
 
 .nav-container {
   width: 100%;
-  max-width: 1200px;
+  max-width: 100%; /* Lebar penuh mengikuti layar */
   margin: 0 auto;
   background: rgba(10, 10, 12, 0.85);
   backdrop-filter: blur(40px);
   -webkit-backdrop-filter: blur(5px) !important;
   border: 3px solid #1B22A7;
   border-radius: 50px;
-  padding: 0 20px;         
+  padding: 0 32px; /* Sesuaikan padding dalam agar sejajar dengan container */
   height: 64px;            
   display: flex;
   justify-content: space-between;
   align-items: center;
   position: relative;
+  box-sizing: border-box;
   box-shadow: 
     0 10px 15px #0A0A0C,       
     0 0 25px rgba(27, 34, 167, 0.35),     
     inset 0 1px 0 #0A0A0C; 
-  transition: none !important;
-  transform: translateZ(0);
 }
 
 .logo-area { 
@@ -386,15 +385,15 @@ a.btn-outline:active,
 }
 
 /* ===================================================
-   7. DASHBOARD & PENUGASAN STYLING
+   7. DASHBOARD & PENUGASAN STYLING (RESPONSIF DIPERBARUI)
    =================================================== */
 .dashboard-container {
   display: flex !important;
   flex-direction: row !important;
   width: 100% !important;
-  max-width: 1200px !important;
+  max-width: 100% !important; /* Lebar penuh agar sejajar dengan navbar */
   margin: 0 auto !important;
-  padding: 120px 24px 60px 24px !important;
+  padding: 120px 40px 60px 40px !important; /* Padding kiri-kanan disamakan 40px dengan .navbar */
   gap: 32px !important;
   min-height: 100vh !important;
   box-sizing: border-box !important;
