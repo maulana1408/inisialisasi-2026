@@ -49,6 +49,9 @@ const HISTORY_FILTER_LABELS: Record<HistoryFilter, string> = {
   pelanggaran: "Pelanggaran",
 };
 
+// Batas maksimal ukuran berkas pengumpulan (dalam MB)
+const MAX_FILE_SIZE_MB = 1;
+
 export default function PenugasanPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("pengumuman");
@@ -556,7 +559,6 @@ export default function PenugasanPage() {
         return;
       }
 
-      const MAX_FILE_SIZE_MB = 25;
       if (selectedFile.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
         triggerToast("UKURAN FILE TERLALU BESAR", `Maksimal ukuran berkas adalah ${MAX_FILE_SIZE_MB}MB.`, true);
         setIsUploading(false);
@@ -1485,7 +1487,7 @@ export default function PenugasanPage() {
                   <div className="dropzone-info">
                     <UploadCloud style={{ width: "28px", height: "28px", color: "#1B22A7", marginBottom: "8px" }} />
                     <p className="dropzone-text">Tarik & Lepaskan atau <span style={{ color: "#FAFAFA", fontWeight: 700 }}>Pilih Berkas</span></p>
-                    <span className="file-spec">Format dapat berupa: .pdf, .mp4, atau .txt (Maks. 25MB)</span>
+                    <span className="file-spec">Format dapat berupa: .pdf, .mp4, atau .txt (Maks. {MAX_FILE_SIZE_MB}MB)</span>
                   </div>
                   <input type="file" id="fileInput" style={{ display: "none" }} accept=".pdf,.mp4,.txt" onChange={handleFileChange} disabled={isUploading} />
                 </label>
