@@ -1146,7 +1146,7 @@ export default function PenugasanPage() {
                   <Award size={16} style={{ color: "#fafafa" }} />
                 </div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: "6px", marginBottom: "12px" }}>
-                  <span style={{ fontSize: "24px", fontWeight: 800, color: displayedSidebarPoints < 0 ? "#FF3333" : "#FAFAFA" }}>
+                  <span style={{ fontSize: "24px", fontWeight: 800, color: displayedSidebarPoints < 0 ? "#FF3333" : "#FF3333" }}>
                     {displayedSidebarPoints}
                   </span>
                   <span style={{ fontSize: "13px", color: "rgba(250, 250, 250, 0.5)", fontWeight: 600 }}>/ 2.300</span>
