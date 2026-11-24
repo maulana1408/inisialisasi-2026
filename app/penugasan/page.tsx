@@ -23,9 +23,6 @@ import {
   ChevronDown,
 } from "lucide-react";
 
-// Konstanta untuk menyembunyikan poin sementara (ubah ke false untuk mengembalikan poin asli)
-const TEMP_ZERO_POINTS = true;
-
 // Kategori riwayat poin
 type HistoryKategori = "individu" | "kelompok" | "angkatan" | "presensi" | "pelanggaran";
 type HistoryFilter = "all" | HistoryKategori;
@@ -81,7 +78,7 @@ export default function PenugasanPage() {
   const [userPoints, setUserPoints] = useState<number>(0);
   const [userKelompok, setUserKelompok] = useState<string>("-");
   const [isGraduatedStatus, setIsGraduatedStatus] = useState<boolean>(false);
-  const [graduationLabel, setGraduationLabel] = useState<string>("TIDAK LULUS DAN TIDAK DIKUKUHKAN");
+  const [graduationLabel, setGraduationLabel] = useState<string>("TIDAK LULUS");
   const [isLoaded, setIsLoaded] = useState(false);
 
   // Nilai total_points yang tersimpan di database (untuk menghindari update yang tidak perlu)
@@ -188,8 +185,8 @@ export default function PenugasanPage() {
       if (data) {
         setUserRole(data.role || "mahasiswa");
         dbRoleRef.current = data.role || "mahasiswa";
+        setUserPoints(data.total_points || 0);
         dbTotalPointsRef.current = data.total_points ?? 0;
-        setUserPoints(TEMP_ZERO_POINTS ? 0 : (data.total_points || 0));
         setIsGraduatedStatus(data.is_graduated || false);
         if (data.kelompok) setUserKelompok(data.kelompok);
         if (data.graduation_status) setGraduationLabel(data.graduation_status);
@@ -244,6 +241,10 @@ export default function PenugasanPage() {
   };
 
   // 🟢 RIWAYAT POIN: satu sumber kebenaran untuk tab Histori DAN Akumulasi Poin di sidebar
+  //   + Tugas Individu / Kelompok / Angkatan  -> task_awards (utama, termasuk poin hasil distribusi)
+  //                                              + submissions tervalidasi (cadangan bila belum ada di task_awards)
+  //   + Presensi                              -> attendance (is_present = true)
+  //   - Pelanggaran                           -> violations (pengurangan poin + keterangan)
   const fetchPointHistory = async () => {
     if (!currentNim) return;
     setIsHistoryLoading(true);
@@ -252,6 +253,9 @@ export default function PenugasanPage() {
       let hasQueryError = false;
 
       // ===== 1. TUGAS (individu / kelompok / angkatan) =====
+
+      // SUMBER UTAMA: task_awards. Berisi poin yang dikumpulkan sendiri
+      // maupun poin hasil distribusi kelompok/angkatan (anggota yang tidak mengumpulkan).
       const { data: awards, error: awardsError } = await supabase
         .from("task_awards")
         .select("task_id, awarded_points, recorded_at")
@@ -263,6 +267,8 @@ export default function PenugasanPage() {
         console.error("Gagal memuat task_awards:", awardsError.message);
       }
 
+      // CADANGAN: submissions tervalidasi milik sendiri
+      // (untuk tugas yang belum punya baris di task_awards)
       const { data: subs, error: subsError } = await supabase
         .from("submissions")
         .select("task_id, awarded_points, submitted_at")
@@ -274,6 +280,7 @@ export default function PenugasanPage() {
         console.error("Gagal memuat submissions:", subsError.message);
       }
 
+      // Semua tugas (termasuk nonaktif) untuk ambil judul & kategori
       const { data: allTasks, error: tasksError } = await supabase
         .from("tasks")
         .select("id, title, category");
@@ -288,11 +295,13 @@ export default function PenugasanPage() {
         taskMap[t.id] = t;
       });
 
+      // Satu tugas = satu entri (hindari duplikat). task_awards didahulukan.
       const merged = new Map<string, { task_id: string; poin: number; waktu: string | null }>();
 
       (awards || []).forEach((a) => {
         const poin = Number(a.awarded_points) || 0;
         const existing = merged.get(a.task_id);
+        // Jika ada lebih dari satu baris untuk tugas yang sama, ambil yang terbaru
         if (
           !existing ||
           (a.recorded_at && (!existing.waktu || new Date(a.recorded_at) > new Date(existing.waktu)))
@@ -302,7 +311,7 @@ export default function PenugasanPage() {
       });
 
       (subs || []).forEach((s) => {
-        if (merged.has(s.task_id)) return;
+        if (merged.has(s.task_id)) return; // sudah ada dari task_awards
         merged.set(s.task_id, {
           task_id: s.task_id,
           poin: Number(s.awarded_points) || 0,
@@ -351,6 +360,7 @@ export default function PenugasanPage() {
         .filter((r) => r.poin > 0);
 
       // ===== 3. PELANGGARAN (pengurangan poin) =====
+      // Tabel violations: user_nim, session_name, points (disimpan positif), keterangan, created_at, updated_at
       const { data: viol, error: violError } = await supabase
         .from("violations")
         .select("id, session_name, points, keterangan, created_at, updated_at")
@@ -367,7 +377,7 @@ export default function PenugasanPage() {
           jenis: "PELANGGARAN",
           kategori: "pelanggaran" as HistoryKategori,
           nama: `Sesi: ${v.session_name}`,
-          poin: -Math.abs(Number(v.points) || 0),
+          poin: -Math.abs(Number(v.points) || 0), // selalu negatif
           waktu: (v.updated_at ?? v.created_at ?? null) as string | null,
           detail: String(v.keterangan || ""),
         }))
@@ -383,20 +393,23 @@ export default function PenugasanPage() {
 
       setPointHistory(rows);
 
-      const realTotal = rows.reduce((sum, r) => sum + r.poin, 0);
-      setUserPoints(TEMP_ZERO_POINTS ? 0 : realTotal);
+      // Akumulasi di sidebar = total riwayat (pasti sama)
+      const total = rows.reduce((sum, r) => sum + r.poin, 0);
+      setUserPoints(total);
 
+      // Simpan ke database HANYA bila semua query sukses, angkanya berubah,
+      // dan user bukan admin/panitia. Mencegah total tertimpa angka salah.
       const role = dbRoleRef.current || userRole;
       const isStaff = role === "admin" || role === "panitia";
-      if (!TEMP_ZERO_POINTS && !hasQueryError && !isStaff && dbTotalPointsRef.current !== realTotal) {
+      if (!hasQueryError && !isStaff && dbTotalPointsRef.current !== total) {
         const { error: updError } = await supabase
           .from("users")
-          .update({ total_points: realTotal })
+          .update({ total_points: total })
           .eq("nim", currentNim);
         if (updError) {
           console.error("Gagal memperbarui total_points:", updError.message);
         } else {
-          dbTotalPointsRef.current = realTotal;
+          dbTotalPointsRef.current = total;
         }
       }
     } catch (err) {
@@ -472,6 +485,7 @@ export default function PenugasanPage() {
           return;
         }
 
+        // Validasi URL ringan tanpa regex berat yang menyebabkan freeze
         if (!cleanLink.startsWith("http://") && !cleanLink.startsWith("https://") && !cleanLink.includes(".")) {
           triggerToast("FORMAT LINK TIDAK VALID", "Pastikan menyertakan tautan yang benar (contoh: https://drive.google.com/...)", true);
           setIsUploading(false);
@@ -484,6 +498,7 @@ export default function PenugasanPage() {
 
         const fileNameDisplay = `Tautan: ${formattedUrl.length > 35 ? formattedUrl.substring(0, 35) + "..." : formattedUrl}`;
 
+        // Masukkan data ke tabel submissions secara langsung
         const { error: dbError } = await supabase
           .from('submissions')
           .insert({
@@ -732,6 +747,9 @@ export default function PenugasanPage() {
     return { isSubmitted: true, isLate: isLateSubmitted };
   };
 
+  // 🟢 IKON TUGAS
+  // Sudah dikumpulkan (atau sudah lewat deadline) -> ikon kertas, merah jika terlambat, hijau jika tepat waktu.
+  // Belum dikumpulkan & belum lewat deadline     -> kertas putih (individu) / ikon Users (kelompok & angkatan).
   const renderTaskIcon = (task: any, isLate: boolean) => {
     const { isSubmitted } = getTaskSubmissionStatus(task);
     if (isSubmitted || isLate) {
@@ -933,16 +951,12 @@ export default function PenugasanPage() {
     );
   };
 
-  // 🟢 KARTU RIWAYAT POIN
+  // 🟢 KARTU RIWAYAT POIN (gaya sama dengan kartu pengumuman/tugas)
+  // Penambahan = hijau, pengurangan (pelanggaran) = merah + keterangan pelanggaran
   const renderHistoryCard = (h: PointHistoryItem) => {
     const isPelanggaran = h.kategori === "pelanggaran";
     const isPresensi = h.kategori === "presensi";
-    // [PERUBAHAN] Poin item riwayat ditampilkan 0 dan berwarna merah (#FF3333) selama TEMP_ZERO_POINTS aktif
-    const displayItemPoin = TEMP_ZERO_POINTS ? 0 : h.poin;
-    const accent =
-      (TEMP_ZERO_POINTS && displayItemPoin === 0) || (isPelanggaran && !TEMP_ZERO_POINTS)
-        ? "#FF3333"
-        : "#00FF88";
+    const accent = isPelanggaran ? "#FF3333" : "#00FF88";
     const waktuLabel = isPelanggaran ? "Dicatat" : isPresensi ? "Tercatat" : "Divalidasi";
 
     return (
@@ -1015,7 +1029,7 @@ export default function PenugasanPage() {
 
           <div style={{ textAlign: "right", flexShrink: 0 }}>
             <span style={{ fontSize: "22px", fontWeight: 800, color: accent, lineHeight: 1 }}>
-              {displayItemPoin > 0 ? `+${displayItemPoin}` : displayItemPoin}
+              {h.poin > 0 ? `+${h.poin}` : h.poin}
             </span>
             <span style={{ display: "block", fontSize: "10px", color: "rgba(250, 250, 250, 0.5)", fontWeight: 700, letterSpacing: "1px", marginTop: "2px" }}>
               POIN
@@ -1030,15 +1044,9 @@ export default function PenugasanPage() {
   const filteredHistory = pointHistory.filter(
     (h) => historyFilter === "all" || h.kategori === historyFilter
   );
-  // [PERUBAHAN] Total poin pada ringkasan atas riwayat ditampilkan 0 dan berwarna merah saat TEMP_ZERO_POINTS aktif
-  const totalHistoryPoints = TEMP_ZERO_POINTS ? 0 : filteredHistory.reduce((sum, h) => sum + h.poin, 0);
+  const totalHistoryPoints = filteredHistory.reduce((sum, h) => sum + h.poin, 0);
   const totalHistoryText = totalHistoryPoints > 0 ? `+${totalHistoryPoints}` : `${totalHistoryPoints}`;
-  const totalHistoryColor =
-    (TEMP_ZERO_POINTS && totalHistoryPoints === 0) || totalHistoryPoints < 0
-      ? "#FF3333"
-      : "#00FF88";
-
-  const displayedSidebarPoints = TEMP_ZERO_POINTS ? 0 : userPoints;
+  const totalHistoryColor = totalHistoryPoints < 0 ? "#FF3333" : "#00FF88";
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", position: "relative" }}>
@@ -1059,7 +1067,7 @@ export default function PenugasanPage() {
           alignItems: "flex-start"
         }}
       >
-        {/* SIDEBAR */}
+        {/* SIDEBAR (memanjang sampai bawah, box Akumulasi Poin di paling bawah) */}
         <aside 
           className="task-sidebar" 
           style={{ 
@@ -1146,9 +1154,7 @@ export default function PenugasanPage() {
                   <Award size={16} style={{ color: "#fafafa" }} />
                 </div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: "6px", marginBottom: "12px" }}>
-                  <span style={{ fontSize: "24px", fontWeight: 800, color: displayedSidebarPoints < 0 ? "#FF3333" : "#FF3333" }}>
-                    {displayedSidebarPoints}
-                  </span>
+                  <span style={{ fontSize: "24px", fontWeight: 800, color: userPoints < 0 ? "#FF3333" : "#FAFAFA" }}>{userPoints}</span>
                   <span style={{ fontSize: "13px", color: "rgba(250, 250, 250, 0.5)", fontWeight: 600 }}>/ 2.300</span>
                 </div>
 
@@ -1159,8 +1165,8 @@ export default function PenugasanPage() {
                       <CheckCircle size={14} /> {graduationLabel}
                     </div>
                   ) : (
-                    <div style={{ background: "transparent", border: "2px solid #1B22A7", color: "#FF3333", padding: "6px 10px", borderRadius: "50px", fontSize: "9px", fontWeight: 800, display: "flex", alignItems: "center", gap: "6px" }}>
-                      TIDAK LULUS & TIDAK DIKUKUHKAN
+                    <div style={{ background: "transparent", border: "2px solid #1B22A7", color: "rgba(250, 250, 250, 0.5)", padding: "6px 10px", borderRadius: "50px", fontSize: "11px", fontWeight: 800, display: "flex", alignItems: "center", gap: "6px" }}>
+                      MENUNGGU KEPUTUSAN
                     </div>
                   )}
                 </div>
