@@ -1162,7 +1162,7 @@ export default function PenugasanPage() {
                   <span style={{ fontSize: "10px", color: "#fafafa", display: "block", marginBottom: "4px" }}>Status Kelulusan:</span>
                   {isGraduatedStatus ? (
                     <div style={{ background: "transparent", border: "1px solid #00FF88", color: "#00FF88", padding: "6px 10px", borderRadius: "50px", fontSize: "11px", fontWeight: 800, display: "flex", alignItems: "center", gap: "6px" }}>
-                      <CheckCircle size={14} /> {graduationLabel}
+                      {graduationLabel}
                     </div>
                   ) : (
                     <div style={{ background: "transparent", border: "2px solid #1B22A7", color: "rgba(250, 250, 250, 0.5)", padding: "6px 10px", borderRadius: "50px", fontSize: "11px", fontWeight: 800, display: "flex", alignItems: "center", gap: "6px" }}>
